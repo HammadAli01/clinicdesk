@@ -1,0 +1,4 @@
+# Build output of `pnpm exec tsc -p desktop` — compiled JS, not committed.
+dist/
+# electron-builder output.
+release/
