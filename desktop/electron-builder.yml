@@ -1,5 +1,5 @@
-# Packaging config for the ClinicDesk desktop shell (Option A, see
-# docs/12-electron.md). Not wired into any pnpm script — package.json is
+# Packaging config for the ClinicDesk desktop shell: a thin window over the
+# hosted web app. Not wired into any pnpm script — package.json is
 # owned by the team lead, who will add an `electron:package` script (or
 # similar) once `electron` and `electron-builder` are installed
 # (see README.md in this folder).

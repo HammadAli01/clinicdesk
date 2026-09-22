@@ -1,8 +1,8 @@
 // ClinicDesk desktop shell — main process.
 //
-// Option A from docs/12-electron.md: a thin window over the hosted web app.
-// Nothing runs locally except this shell — the renderer just shows
-// CLINICDESK_APP_URL. See that chapter for what would need to change for
+// A thin window over the hosted web app. Nothing runs locally except this
+// shell — the renderer just shows CLINICDESK_APP_URL. See desktop/README.md
+// for what would need to change for
 // Option B (bundle the Next.js server) or Option C (offline-first + sync).
 import { app, BrowserWindow, Menu, Notification, Tray, ipcMain, shell } from "electron";
 import path from "node:path";
@@ -33,7 +33,7 @@ function createWindow(): BrowserWindow {
     height: 800,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
-      // Security posture (docs/12-electron.md, "What Electron actually is"):
+      // Security posture:
       // the renderer is just Chromium showing our own web app, and web apps
       // get compromised (a dependency, a reflected XSS, a malicious embed).
       // These three flags decide what that compromise can do to the

@@ -3,7 +3,7 @@
 // *wiring* -- tRPC client to provider, superjson Dates surviving the round
 // trip, the clinic's timezone reaching the DOM, a 409 reaching a visible
 // error -- none of which the Vitest suite in tests/ can see, because it
-// calls the service functions directly. See docs/11-browser-automation.md.
+// calls the service functions directly.
 //
 // Rules followed throughout:
 //  - no `waitForTimeout` anywhere; only web-first assertions that retry.
@@ -52,8 +52,8 @@ function karachiDateString(daysFromNow: number): string {
  * Selects the "Consultation" service -- the one zero-deposit service, so
  * booking it confirms immediately instead of redirecting to Stripe Checkout.
  *
- * docs/11-browser-automation.md shows
- * `selectOption({ label: 'Consultation' })`, but that does not match the
+ * The obvious selector, `selectOption({ label: 'Consultation' })`, does not
+ * match the
  * real markup: Team UI's option text is "Consultation — 30 min — Rs 30.00"
  * (name + duration + price), and Playwright's `label` match is exact, not a
  * substring. So instead this locates the <option> by substring text, reads

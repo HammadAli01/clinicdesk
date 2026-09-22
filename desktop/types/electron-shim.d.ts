@@ -4,7 +4,8 @@
 // ../README.md).
 //
 // `electron` is deliberately not a dependency of this repo (it's a ~100 MB
-// dev dependency; see docs/12-electron.md). That means the real
+// dev dependency, and installing it would slow every `pnpm install` in CI
+// to support a demo). That means the real
 // `node_modules/electron/electron.d.ts` types don't exist, and the root
 // `tsconfig.json` includes `**/*.ts` — so without this file, `pnpm typecheck`
 // would fail on every `import ... from "electron"` in desktop/main.ts and

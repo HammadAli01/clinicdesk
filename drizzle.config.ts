@@ -19,7 +19,7 @@ export default defineConfig({
   // `verbose: true` prints the SQL. Both are great for `generate`/`push`, but
   // drizzle-kit 0.31 tries to open an interactive prompt for them during
   // `migrate` as well, which dies silently in a non-TTY shell (CI, an agent's
-  // shell, a Docker build). See docs/03-migrations.md — this cost us 20 minutes.
+  // shell, a Docker build) — which costs you a silent `exit 1` and no message.
   strict: false,
   verbose: false,
 });

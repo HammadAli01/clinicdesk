@@ -1,6 +1,8 @@
 // End-to-end config for the real booking flow: real Chromium, real Next.js
-// server, real Postgres. No mocks. See docs/11-browser-automation.md for why
-// this suite exists alongside (not instead of) the Vitest integration tests.
+// server, real Postgres. No mocks. This suite exists alongside (not instead
+// of) the Vitest integration tests: it tests the WIRING those cannot see —
+// the tRPC client reaching the provider, superjson keeping Dates as Dates,
+// the clinic timezone reaching the DOM, and a 409 becoming a visible error.
 import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({

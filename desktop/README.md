@@ -1,7 +1,6 @@
 # ClinicDesk desktop shell
 
-Electron shell implementing **Option A** from `../docs/12-electron.md`: a
-thin window over the hosted web app. It changes nothing server-side — it
+Electron shell: a thin window over the hosted web app. It changes nothing server-side — it
 just gives ClinicDesk a taskbar/dock presence, a tray with quick actions, and
 native notifications. See that chapter for why Option A is the right first
 step, and what Options B and C would additionally cost.

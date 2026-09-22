@@ -1,7 +1,7 @@
 # e2e/ -- browser automation
 
 Two different jobs live under this repo's "browser automation" umbrella; only the first one has
-code in this folder. See `docs/11-browser-automation.md` for the full writeup.
+code in this folder.
 
 1. **`booking.spec.ts`** -- Playwright driving a real Chromium against the real booking flow.
    This is "Job 1: testing your own app in a real browser."

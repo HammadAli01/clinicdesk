@@ -18,8 +18,8 @@
 //
 // ClinicDesk itself has no "vendor with no public API" integration -- there
 // is nothing in this codebase that needs this pattern today. This file
-// exists purely to document Job 2 from docs/11-browser-automation.md
-// ("driving someone else's app because they gave you no API") for whoever
+// exists purely to document Job 2 -- "driving someone else's app because
+// they gave you no API" -- for whoever
 // builds the first real connector, so they start from a shape that has
 // already thought about sessions, not a blank page.
 //

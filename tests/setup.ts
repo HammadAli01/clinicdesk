@@ -24,7 +24,7 @@ import { db } from '@/server/db';
 //   createdb -U clinic clinicdesk_test_myfeature
 //   $env:DATABASE_URL="postgres://clinic:clinic@localhost:5433/clinicdesk_test_myfeature"
 //
-// See docs/14-how-this-was-built.md — this cost real time during the build.
+// This has cost real debugging time; see AI_LOG.md.
 beforeEach(async () => {
   await db.execute(
     sql`TRUNCATE appointments, services, webhook_events, oauth_accounts CASCADE`,

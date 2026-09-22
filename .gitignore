@@ -51,3 +51,6 @@ next-env.d.ts
 
 # stray local folder, not part of the project
 /.ignored_node_modules
+
+# personal notes / study guide — local only, never pushed
+/docs/
