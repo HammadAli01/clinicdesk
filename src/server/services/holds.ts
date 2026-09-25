@@ -26,8 +26,13 @@ const DEFAULT_GRACE_MINUTES = 5;
  */
 export async function releaseExpiredHolds(
   db: Db,
+  // `opts?` = the whole argument may be omitted; `now?` = each field is optional too.
   opts?: { now?: Date; olderThanMinutes?: number },
+  // Explicit return type: an async function always returns a Promise of its value.
 ): Promise<{ released: string[] }> {
+  // `?.` (optional chaining): if opts is undefined, `opts?.now` is undefined instead of crashing.
+  // `??` (nullish coalescing): use the right side only when the left is null/undefined
+  // (unlike `||`, a legitimate 0 would be kept).
   const now = opts?.now ?? new Date();
   const olderThanMinutes = opts?.olderThanMinutes ?? DEPOSIT_HOLD_MINUTES + DEFAULT_GRACE_MINUTES;
   const cutoff = new Date(now.getTime() - olderThanMinutes * 60_000);
@@ -38,5 +43,5 @@ export async function releaseExpiredHolds(
     .where(and(eq(appointments.status, "pending_payment"), lt(appointments.createdAt, cutoff)))
     .returning({ id: appointments.id });
 
-  return { released: rows.map((r) => r.id) };
+  return { released: rows.map((r) => r.id) }; // arrow function with an implicit return
 }

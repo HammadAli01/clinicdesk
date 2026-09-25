@@ -10,6 +10,20 @@
 //  - every date is relative to `now`, never a hardcoded calendar date.
 //  - each test uses its own day offset so tests never fight over the same
 //    slot and can run in any order, including in parallel.
+//
+// Playwright vocabulary used below (full primer in docs/11-browser-automation.md):
+//  - browser  -- one launched Chromium process.
+//  - context  -- an isolated "incognito profile" inside it: own cookies, storage, timezone.
+//                Two contexts = two independent users. Cheap to create.
+//  - page     -- one tab inside a context. The built-in `page` fixture gives each test a
+//                fresh context + page automatically; `browser` is used when we need more.
+//  - locator  -- a DESCRIPTION of how to find an element (e.g. getByTestId("slot-button")).
+//                It is lazy: nothing is searched until you act on it or assert on it, and it
+//                is re-resolved every time, so it survives React re-renders.
+//  - `await expect(locator).toBeVisible()` -- a "web-first" assertion: Playwright keeps
+//                re-checking until it passes or the timeout (5s default) runs out. This is
+//                "auto-waiting", and it's why no test here needs a sleep.
+//  - `page.goto("/book")` is relative: `baseURL` in playwright.config.ts supplies the host.
 import { expect, test, type Page } from "@playwright/test";
 // Pure, dependency-free clinic config (no DB, no env, no side effects) --
 // safe to import into a Node test runner. This is NOT a "use client"
@@ -41,7 +55,9 @@ function karachiDateString(daysFromNow: number): string {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(instant);
+  }).formatToParts(instant); // [{type:"year",value:"2026"}, {type:"literal",value:"-"}, ...]
+  // `?.value ?? "1970"`: if `find` returns undefined, `?.` yields undefined and `??` supplies a
+  // fallback -- satisfies strict TypeScript without a `!` non-null assertion.
   const year = parts.find((p) => p.type === "year")?.value ?? "1970";
   const month = parts.find((p) => p.type === "month")?.value ?? "01";
   const day = parts.find((p) => p.type === "day")?.value ?? "01";
@@ -75,14 +91,20 @@ async function selectConsultation(page: Page): Promise<void> {
 
 const VALID_PHONE = "03001234567"; // matches BookInput's phone regex, no uniqueness required
 
+// test.describe groups related tests (shows as a heading in the report).
+// `async ({ page }) => ...` DESTRUCTURES a "fixture": Playwright sees you asked for `page`,
+// creates a fresh isolated context + tab for this test, and closes it afterwards.
 test.describe("booking flow", () => {
   test("happy path: book the zero-deposit Consultation service", async ({ page }) => {
     await page.goto("/book");
     await selectConsultation(page);
     await page.getByTestId("date-input").fill(karachiDateString(1));
 
+    // Many slot buttons match; `.first()` narrows the locator to one. Waiting for visibility
+    // doubles as "wait until the slots query has returned".
     const firstSlot = page.getByTestId("slot-button").first();
     await expect(firstSlot).toBeVisible();
+    // Actions like click()/fill() auto-wait too: element attached, visible, enabled, stable.
     await firstSlot.click();
 
     await page.getByTestId("name-input").fill("E2E Happy Path");
@@ -100,6 +122,8 @@ test.describe("booking flow", () => {
   }) => {
     const dateStr = karachiDateString(2);
 
+    // Two separate contexts = two separate patients on two separate devices. Contexts we
+    // create ourselves are NOT auto-closed, hence the try/finally below.
     const contextA = await browser.newContext();
     const contextB = await browser.newContext();
     const pageA = await contextA.newPage();
@@ -187,6 +211,8 @@ test.describe("booking flow", () => {
 });
 
 test.describe("landing page", () => {
+  // getByRole finds elements the way a screen reader does: by ARIA role + accessible name.
+  // It's Playwright's recommended locator because it also checks the page is accessible.
   test("links to the booking page and the staff admin page", async ({ page }) => {
     await page.goto("/");
 

@@ -6,10 +6,13 @@
 // has to be written down, not assumed. See the catch block at the bottom.
 
 import { eq } from 'drizzle-orm';
+// `import type Stripe`: we only need the Stripe TYPE here. The real client is
+// injected via `deps`, so this file never creates one (no network in tests).
 import type Stripe from 'stripe';
 import { env } from '@/env';
 import type { Db } from '@/server/db';
 import { appointments } from '@/server/db/schema';
+// Inline `type` modifier: mix value imports and a type-only import in one line.
 import { bookAppointment, releaseUnpaidHold, type BookInput } from './bookings';
 
 /** Dependencies passed in, never imported — that is what makes this testable. */
@@ -18,8 +21,15 @@ export type Deps = { db: Db; stripe: Stripe };
 /** How long we hold a slot for an unpaid deposit before Stripe expires the session. */
 export const DEPOSIT_HOLD_MINUTES = 35;
 
+/**
+ * Book, then (if the service needs a deposit) create a Stripe Checkout session.
+ * Returns `{ appointmentId, status, startsAt, checkoutUrl }`; `checkoutUrl` is
+ * null when no payment is needed. Called by the tRPC `book` procedure and the
+ * MCP `book_appointment` tool.
+ */
 export async function bookWithDeposit(deps: Deps, input: BookInput) {
   // All the booking RULES live in bookAppointment. This function only adds money.
+  // Object destructuring: pull two properties out of the returned object.
   const { appointment, service } = await bookAppointment(deps.db, input);
 
   const summary = {
@@ -29,8 +39,11 @@ export async function bookWithDeposit(deps: Deps, input: BookInput) {
   };
 
   // No deposit required: bookAppointment already marked it confirmed.
+  // Spread `...summary` copies its fields into a NEW object, then adds checkoutUrl.
   if (service.depositCents === 0) return { ...summary, checkoutUrl: null };
 
+  // Pattern: COMPENSATING ACTION. DB write first, then Stripe; if Stripe fails,
+  // undo the DB write (release the hold) in the catch block below.
   try {
     const session = await deps.stripe.checkout.sessions.create(
       {
@@ -53,7 +66,7 @@ export async function bookWithDeposit(deps: Deps, input: BookInput) {
         // Stripe expires the session, which fires checkout.session.expired and
         // releases the hold. The jobs runner sweeps up anything that webhook
         // never delivered (see src/server/jobs/handlers.ts).
-        expires_at: Math.floor(Date.now() / 1000) + DEPOSIT_HOLD_MINUTES * 60,
+        expires_at: Math.floor(Date.now() / 1000) + DEPOSIT_HOLD_MINUTES * 60, // Stripe wants Unix SECONDS, JS gives ms
       },
       {
         // If OUR request times out and the caller retries, Stripe returns the

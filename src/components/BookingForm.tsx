@@ -1,4 +1,4 @@
-"use client";
+"use client"; // Next.js directive: this component runs in the browser (it uses state and hooks)
 
 // Service -> date -> slot -> contact details -> submit. Reads and writes go
 // through tRPC only; the server decides what is bookable (see
@@ -7,14 +7,17 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useTRPC } from "@/trpc/client";
+import { useTRPC } from "@/trpc/client"; // client-side only; this file never imports server code
 
+// Created once at module load and reused on every render (building a formatter is not free).
 const timeFmt = new Intl.DateTimeFormat("en-PK", {
   timeZone: "Asia/Karachi",
   hour: "numeric",
   minute: "2-digit",
 });
 
+// Arrow function + template literal. Money stays in integer cents everywhere;
+// it is only divided by 100 here, at the very last moment, for display.
 const moneyFmt = (cents: number) => `Rs ${(cents / 100).toFixed(2)}`;
 
 function todayInKarachi(): string {
@@ -26,23 +29,31 @@ function todayInKarachi(): string {
     month: "2-digit",
     day: "2-digit",
   }).formatToParts(new Date());
+  // `.find` may return undefined -> `?.value` safely yields undefined -> `??` supplies a fallback.
   const year = parts.find((p) => p.type === "year")?.value ?? "1970";
   const month = parts.find((p) => p.type === "month")?.value ?? "01";
   const day = parts.find((p) => p.type === "day")?.value ?? "01";
   return `${year}-${month}-${day}`;
 }
 
+/** The booking form: a React function component (a function that returns JSX). */
 export function BookingForm() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
 
+  // useState returns a pair; array destructuring names them [value, setter].
   const [serviceId, setServiceId] = useState("");
+  // Passing the FUNCTION (not calling it) = lazy initial state: runs only on first render.
   const [date, setDate] = useState(todayInKarachi);
+  // Generic type argument <Date | null>: without it TS would infer the type `null` forever.
   const [slot, setSlot] = useState<Date | null>(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
 
+  // tRPC v11 style: useQuery(trpc.x.queryOptions()). The result type comes all the
+  // way from the server's listServices return type, with no hand-written API types.
   const services = useQuery(trpc.bookings.services.queryOptions());
+  // `enabled: false` until a service is picked, so no request goes out with an empty id.
   const slots = useQuery(
     trpc.bookings.availableSlots.queryOptions(
       { serviceId, date },
@@ -53,6 +64,7 @@ export function BookingForm() {
   const book = useMutation(
     trpc.bookings.book.mutationOptions({
       onSuccess: async (result) => {
+        // Mark cached slot lists stale so they refetch: the slot just booked disappears.
         await queryClient.invalidateQueries(trpc.bookings.availableSlots.queryFilter());
         if (result.checkoutUrl) {
           window.location.assign(result.checkoutUrl); // off to pay the deposit
@@ -65,13 +77,17 @@ export function BookingForm() {
     }),
   );
 
+  // Derived state: computed on every render, not stored in useState (so it can't go stale).
+  // This is only a UX hint; the server re-validates everything with Zod.
   const canSubmit = serviceId !== "" && slot !== null && name.trim() !== "" && phone.trim() !== "";
 
   return (
     <form
       className="mx-auto grid max-w-md gap-4 p-6"
       onSubmit={(e) => {
-        e.preventDefault();
+        e.preventDefault(); // stop the browser's full-page form submit
+        // `!slot` is repeated on purpose: TypeScript can't see through `canSubmit`,
+        // so this check narrows `slot` from `Date | null` to `Date`.
         if (!canSubmit || !slot) return;
         book.mutate({ serviceId, startsAt: slot, customerName: name, customerPhone: phone });
       }}
@@ -80,6 +96,7 @@ export function BookingForm() {
         <label htmlFor="service-select" className="text-sm font-medium text-zinc-700">
           Service
         </label>
+        {/* Conditional rendering: `cond && <jsx/>` renders the JSX only when cond is truthy. */}
         {services.error && (
           <p role="alert" className="text-sm text-red-700" data-testid="services-error-message">
             {services.error.message}
@@ -99,6 +116,7 @@ export function BookingForm() {
           <option value="">
             {services.isLoading ? "Loading services…" : "Choose a service"}
           </option>
+          {/* `data?.map`: data is undefined while loading. `key` lets React track each item. */}
           {services.data?.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name} — {s.durationMinutes} min — {moneyFmt(s.priceCents)}

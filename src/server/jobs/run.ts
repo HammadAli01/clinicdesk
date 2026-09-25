@@ -13,7 +13,7 @@
 
 import { schedule, shutdown } from "node-cron";
 import { db } from "@/server/db";
-import { jobs, type Job } from "./handlers";
+import { jobs, type Job } from "./handlers"; // `jobs` is a value, `Job` a type-only import
 
 /**
  * Runs one job's handler, catching anything it throws so that one failing
@@ -30,8 +30,9 @@ async function runOnce(job: Job): Promise<boolean> {
   }
 }
 
+/** `--once` mode: run every job a single time, sequentially, then let the process exit. */
 async function runAllOnce(): Promise<void> {
-  let allSucceeded = true;
+  let allSucceeded = true; // `let` because it is reassigned in the loop
   for (const job of jobs) {
     const succeeded = await runOnce(job);
     allSucceeded = allSucceeded && succeeded;
@@ -41,6 +42,7 @@ async function runAllOnce(): Promise<void> {
   if (!allSucceeded) process.exitCode = 1;
 }
 
+/** Persistent mode: register every job with node-cron and handle Ctrl+C / SIGTERM gracefully. */
 function startScheduler(): void {
   console.error(
     `[jobs] starting ${jobs.length} job(s): ` +
@@ -48,6 +50,7 @@ function startScheduler(): void {
   );
 
   for (const job of jobs) {
+    // `() => runOnce(job)`: a callback that closes over this loop's `job` (a closure).
     schedule(job.cron, () => runOnce(job), {
       name: job.name,
       // node-cron's built-in overlap guard: if the previous tick of this
@@ -62,6 +65,8 @@ function startScheduler(): void {
     console.error(`[jobs] received ${signal}, stopping...`);
     // Stops every registered task and waits for any execution in progress
     // to finish before resolving, so we don't exit mid-sweep.
+    // Promise chaining with .then/.catch instead of await, because a signal
+    // handler is a plain (non-async) callback.
     shutdown()
       .then(() => process.exit(0))
       .catch((e) => {

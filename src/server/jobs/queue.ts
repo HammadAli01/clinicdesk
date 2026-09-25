@@ -14,6 +14,8 @@ import { jobs } from "./handlers";
 
 export const QUEUE_NAME = "clinicdesk-jobs";
 
+// env.REDIS_URL is `string | undefined` (optional in env.ts). The throw narrows
+// it, so the return below is a guaranteed `string`, with no `!` needed.
 function connectionOptions(): { url: string } {
   if (!env.REDIS_URL) {
     throw new Error("REDIS_URL must be set to use the BullMQ jobs adapter");
@@ -21,7 +23,7 @@ function connectionOptions(): { url: string } {
   return { url: env.REDIS_URL };
 }
 
-/** Creates a Queue connected to REDIS_URL. Caller owns its lifecycle (close it when done). */
+/** Creates a Queue connected to REDIS_URL. Caller owns its lifecycle (close it when done). Pattern: FACTORY FUNCTION. */
 export function createQueue(): Queue {
   return new Queue(QUEUE_NAME, { connection: connectionOptions() });
 }
@@ -36,7 +38,9 @@ export function createQueue(): Queue {
 export function createWorker(): Worker {
   return new Worker(
     QUEUE_NAME,
+    // An async arrow function passed as a callback; BullMQ calls it once per job.
     async (job) => {
+      // .find returns `Job | undefined`; the `if (!handler)` below narrows it.
       const handler = jobs.find((j) => j.name === job.name);
       if (!handler) {
         throw new Error(`No handler registered for job "${job.name}"`);
@@ -54,7 +58,10 @@ export function createWorker(): Worker {
  * (e.g. on every deploy) updates the existing scheduler instead of creating
  * a duplicate.
  */
+// `queue: Queue = createQueue()` is a DEFAULT PARAMETER: evaluated only if the
+// caller passes nothing, so a caller can inject its own queue instead.
 export async function scheduleRepeatableJobs(queue: Queue = createQueue()): Promise<void> {
+  // for...of + await: registers the jobs one after another, not in parallel.
   for (const job of jobs) {
     await queue.upsertJobScheduler(job.name, { pattern: job.cron }, { name: job.name });
   }

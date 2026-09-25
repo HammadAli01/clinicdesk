@@ -10,7 +10,13 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+// The database tables, written in TypeScript. Drizzle reads this file to
+// generate SQL migrations (`pnpm db:generate`) and to type every query.
+// Comment-only edits here do not change the schema.
+
 // Always store time as "timestamp with time zone" (UTC under the hood).
+// A tiny helper (arrow function) so every timestamp column is configured the same way.
+// mode: 'date' = Drizzle hands us JS Date objects, not strings.
 const tstz = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' });
 
 // A Postgres enum: the column can only hold one of these values.
@@ -38,10 +44,15 @@ export const services = pgTable(
   (t) => [uniqueIndex('services_name_uq').on(t.name)],
 );
 
+// NOTE: the rule "no two non-cancelled appointments may overlap" is NOT here.
+// Drizzle can't express an exclusion constraint, so it lives in hand-written
+// SQL in drizzle/0001_no_overlapping_appointments.sql (error code 23P01).
 export const appointments = pgTable(
   'appointments',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    // camelCase in TypeScript (`serviceId`), snake_case in SQL ('service_id').
+    // `() => services.id` is a function so the reference is resolved lazily.
     serviceId: uuid('service_id')
       .notNull()
       .references(() => services.id, { onDelete: 'restrict' }), // foreign key: can't delete a service with appointment history
@@ -50,6 +61,8 @@ export const appointments = pgTable(
     startsAt: tstz('starts_at').notNull(),
     endsAt: tstz('ends_at').notNull(),
     status: appointmentStatus('status').notNull().default('pending_payment'),
+    // A plain TEXT column, but `enum` narrows its TypeScript type to the union
+    // 'web' | 'ai_agent' | 'staff' (TS-only check; the DB itself allows any text).
     source: text('source', { enum: ['web', 'ai_agent', 'staff'] }).notNull(),
     stripeCheckoutSessionId: text('stripe_checkout_session_id'),
     googleEventId: text('google_event_id'),
@@ -58,7 +71,7 @@ export const appointments = pgTable(
     updatedAt: tstz('updated_at')
       .notNull()
       .defaultNow()
-      .$onUpdate(() => new Date()),
+      .$onUpdate(() => new Date()), // Drizzle (app side, not a DB trigger) sets this on every .update()
   },
   (t) => [
     index('appointments_starts_at_idx').on(t.startsAt), // fast "what's on this day?"
@@ -102,6 +115,8 @@ export const appointmentsRelations = relations(appointments, ({ one }) => ({
 }));
 
 // Types derived from the schema -- use these instead of writing interfaces by hand.
+// $inferSelect = every column (what a SELECT returns). $inferInsert = columns
+// with defaults or NULL allowed become optional (what an INSERT needs).
 export type Service = typeof services.$inferSelect;
 export type NewService = typeof services.$inferInsert;
 export type Appointment = typeof appointments.$inferSelect; // a row you read

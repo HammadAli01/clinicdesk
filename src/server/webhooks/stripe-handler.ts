@@ -19,7 +19,13 @@ import { syncToGoogleCalendar } from "@/server/services/calendar";
 // wouldn't have one). Validate it at this boundary rather than trusting the SDK's typing.
 const SessionMetadata = z.object({ appointmentId: z.uuid() });
 
+// `db` is passed in (dependency injection) rather than imported, so tests can pass the test DB.
+// Contract with the route: return normally -> route answers 200. Throw -> route answers 500
+// and Stripe retries. So "throw" here means "this matters; please deliver it again".
 export async function handleStripeEvent(db: Db, event: Stripe.Event): Promise<void> {
+  // `Stripe.Event` is a DISCRIMINATED UNION: one type per event name, told apart by the
+  // `type` string. Inside each `case`, TypeScript narrows `event` to that exact variant,
+  // which is why `event.data.object` is typed as a Checkout Session below with no cast.
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object; // narrowed to Stripe.Checkout.Session by event.type
@@ -28,6 +34,7 @@ export async function handleStripeEvent(db: Db, event: Stripe.Event): Promise<vo
       // (e.g. bank debits); only a "paid" session should confirm the booking.
       if (session.payment_status !== "paid") return;
 
+      // safeParse never throws; it returns { success: true, data } or { success: false, error }.
       const metadata = SessionMetadata.safeParse(session.metadata);
       if (!metadata.success) {
         // Unexpected: every session we create sets this. Throwing marks the webhook_events

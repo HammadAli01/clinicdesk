@@ -44,9 +44,25 @@
 //      A browser is slow and fails often; a queue is built for exactly that.
 // ----------------------------------------------------------------------
 //
+// Key term: a "vendor session" = the logged-in state a vendor's website gives
+// a browser after a successful login -- usually session cookies (+ sometimes
+// localStorage tokens). Playwright can save that state to a JSON file
+// (`context.storageState({ path })`) and load it into a fresh browser later
+// (`browser.newContext({ storageState: path })`), so a job starts already
+// logged in instead of typing the password every run. That file is as
+// powerful as the password itself -- treat it as a secret.
+// Line-by-line walkthrough: docs/16-private-apis-and-vendor-sessions.md.
+// ----------------------------------------------------------------------
+//
+// NOTE: `playwright` (the library) is not a direct dependency of this repo;
+// only `@playwright/test` (the test runner) is. A real connector would
+// `pnpm add playwright` -- the runner is for tests, the library is for
+// automation that runs as part of the product.
 // import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 //
 // const VENDOR_URL = "https://vendor.example.invalid/portal"; // never a real host
+// // A real multi-tenant connector keeps one session PER customer, stored
+// // encrypted in the DB (or a secret store), not one file on disk.
 // const SESSION_PATH = "vendor-session.json"; // storageState -- gitignored, encrypted at rest
 //
 // /**
@@ -56,6 +72,8 @@
 //  */
 // let sharedBrowser: Browser | undefined;
 // async function getBrowser(): Promise<Browser> {
+//   // `??=` launches only if there is no browser yet. headless: no visible
+//   // window -- required on a server, which has no screen.
 //   sharedBrowser ??= await chromium.launch({ headless: true });
 //   return sharedBrowser;
 // }
@@ -67,6 +85,8 @@
 //  */
 // async function contextWithSavedSession(browser: Browser): Promise<BrowserContext> {
 //   const hasSavedSession = await fileExists(SESSION_PATH);
+//   // A new context = a clean "incognito profile". Passing storageState
+//   // pre-loads the saved cookies/localStorage into it.
 //   return browser.newContext(hasSavedSession ? { storageState: SESSION_PATH } : {});
 // }
 //
@@ -77,6 +97,12 @@
 //  */
 // async function sessionExpired(page: Page): Promise<boolean> {
 //   await page.goto(VENDOR_URL);
+//   // If the portal shows its login form, our cookies are dead.
+//   // isVisible() checks ONCE, right now (it does not auto-wait like
+//   // expect(...).toBeVisible()). `.catch(() => false)` turns any error
+//   // into "not visible". Note: a real vendor's page won't have OUR
+//   // data-testid attributes -- in practice you'd use something like
+//   // page.getByRole("button", { name: "Log in" }) or check the URL.
 //   return page
 //     .getByTestId("login-form")
 //     .isVisible()
@@ -95,6 +121,10 @@
 //   page: Page,
 //   credentials: { username: string; password: string },
 // ): Promise<void> {
+//   // getByLabel finds an input by its visible <label> text -- sturdier than
+//   // CSS like "#user_login_v2", which vendors rename freely. If the vendor
+//   // adds 2FA/CAPTCHA here, unattended login stops working: detect it and
+//   // alert a human rather than trying to defeat it.
 //   await page.getByLabel("Username").fill(credentials.username);
 //   await page.getByLabel("Password").fill(credentials.password);
 //   await page.getByRole("button", { name: "Log in" }).click();
@@ -112,6 +142,10 @@
 //   const browser = await getBrowser();
 //   const context = await contextWithSavedSession(browser);
 //   const page = await context.newPage();
+//   // Production addition: record a trace so a 3am failure can be replayed
+//   // step by step in `npx playwright show-trace trace.zip`:
+//   //   await context.tracing.start({ screenshots: true, snapshots: true });
+//   //   ...and in `finally`: await context.tracing.stop({ path: "trace.zip" });
 //
 //   try {
 //     if (await sessionExpired(page)) {
@@ -127,6 +161,8 @@
 //     // failure is how you find a layout change before a customer does.
 //     throw new Error(`Connector job failed -- vendor portal may have changed shape: ${String(err)}`);
 //   } finally {
+//     // Always close the context (success OR failure) or tabs leak memory
+//     // until the shared browser falls over.
 //     await context.close();
 //   }
 // }
@@ -139,6 +175,9 @@
 //   //   - Rate limiting: you are a guest. Behave like the vendor's own
 //   //     frontend -- sequential, paced, a real user agent -- not a scraper
 //   //     hammering their infrastructure.
+//   //   - Validation: whatever you read off the page (text, a table row, a
+//   //     JSON response caught via page.waitForResponse) is untrusted
+//   //     third-party input. Zod-parse it before it reaches the database.
 // }
 //
 // async function fileExists(path: string): Promise<boolean> {
