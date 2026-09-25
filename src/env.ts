@@ -11,6 +11,9 @@ const EnvSchema = z.object({
   STRIPE_SECRET_KEY: z.string().startsWith('sk_'),
   STRIPE_WEBHOOK_SECRET: z.string().startsWith('whsec_'),
   REDIS_URL: z.url().optional(), // typed `string | undefined`: code must handle "not set"
+  // Protects /api/cron/release-holds. Optional because only deployed environments
+  // expose that route; locally `pnpm jobs` runs the sweeper instead. Unset = route disabled (404).
+  CRON_SECRET: z.string().min(32, 'CRON_SECRET must be at least 32 characters').optional(),
   NODE_ENV: z
     .enum(['development', 'test', 'production'])
     .default('development'),
