@@ -1,0 +1,42 @@
+# Packaging config for the ClinicDesk desktop shell: a thin window over the
+# hosted web app. Not wired into any pnpm script — package.json is
+# owned by the team lead, who will add an `electron:package` script (or
+# similar) once `electron` and `electron-builder` are installed
+# (see README.md in this folder).
+#
+# `files` deliberately does NOT include the Next.js build output (`.next/**`).
+# Option A is a thin shell: the BrowserWindow loads CLINICDESK_APP_URL over
+# the network (dev: http://localhost:3000, prod: the hosted server) — it
+# never serves that build output locally. Bundling it into the installer
+# would ship an unused, multi-hundred-MB payload and would contradict the
+# chapter's own description of Option A ("everything stays server-side...
+# nothing offline"). Serving the app's own build from inside the app is
+# Option B (bundle the Next.js server), which needs a different `files` list,
+# a bundled Node server, and a local database — see the chapter's "Option B"
+# section.
+#
+# Not verified against a real `electron-builder` run (it isn't installed —
+# see README.md). In particular, electron-builder also expects a
+# `desktop/package.json` with a `main` field pointing at the compiled entry
+# point (`dist/main.js`) to know what to launch; that file is outside this
+# task's ownership (see README.md) and isn't included here.
+
+appId: com.clinicdesk.desktop
+productName: ClinicDesk
+
+directories:
+  # Where electron-builder writes the packaged installers/binaries.
+  output: release
+
+files:
+  - dist/**/*
+  - assets/**/*
+
+win:
+  target: nsis
+
+mac:
+  target: dmg
+
+linux:
+  target: AppImage

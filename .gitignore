@@ -39,3 +39,18 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# MCP server config (contains a GitHub PAT)
+.mcp.json
+
+# playwright
+/playwright-report
+/test-results
+/blob-report
+/playwright/.cache
+
+# stray local folder, not part of the project
+/.ignored_node_modules
+
+# personal notes / study guide — local only, never pushed
+/docs/

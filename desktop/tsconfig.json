@@ -1,0 +1,30 @@
+{
+  // Standalone project — does NOT extend the root tsconfig.json. Electron's
+  // main process (this folder) is a plain Node CommonJS program, not the
+  // ESM/bundler-resolved React app the root config targets. Compiled with
+  // `pnpm exec tsc -p desktop` into desktop/dist (see ../README.md).
+  //
+  // This file only controls the real build of desktop/*.ts into desktop/dist.
+  // The root `pnpm typecheck` (`tsc --noEmit` at the repo root) still picks
+  // up desktop/*.ts too, because the root tsconfig's "include" is `**/*.ts`
+  // — that run type-checks these files against ../types/electron-shim.d.ts
+  // as well, since that file is included by the same glob.
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020"],
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "outDir": "dist",
+    "rootDir": ".",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "noEmitOnError": true
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["dist"]
+}
