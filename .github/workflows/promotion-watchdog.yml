@@ -1,0 +1,68 @@
+# Alarm for pushes that skip the pipeline. Every commit on staging must already
+# be on development, and every commit on main must already be on staging.
+# If not, this fails and opens (or comments on) a GitHub issue naming the pusher.
+# Branch protection is the lock; this is the second alarm behind it.
+
+name: Promotion watchdog
+
+on:
+  push:
+    branches: [staging, main]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: promotion-watchdog-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Pushed commit came through the pipeline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: check
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ "$BRANCH" = "staging" ]; then UPSTREAM=development; else UPSTREAM=staging; fi
+          echo "upstream=$UPSTREAM" >> "$GITHUB_OUTPUT"
+          git fetch origin "+refs/heads/$UPSTREAM:refs/remotes/origin/$UPSTREAM"
+          if git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/$UPSTREAM"; then
+            echo "OK: ${GITHUB_SHA:0:7} is on $UPSTREAM."; exit 0
+          fi
+          echo "out_of_pipeline=true" >> "$GITHUB_OUTPUT"
+          echo "::error::${GITHUB_SHA:0:7} was pushed to $BRANCH but is not on $UPSTREAM."
+          exit 1
+
+      - name: Open or update an issue
+        if: failure() && steps.check.outputs.out_of_pipeline == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+          UPSTREAM: ${{ steps.check.outputs.upstream }}
+          PUSHER: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TITLE="Out-of-pipeline push to $BRANCH"
+          BODY=$(cat <<EOF
+          @$PUSHER pushed \`${GITHUB_SHA:0:7}\` to \`$BRANCH\`, but that commit is not on \`$UPSTREAM\`.
+          Run: $RUN_URL
+
+          **Fix**
+          1. Get the change into \`development\` through a normal PR.
+          2. Realign \`$BRANCH\` (admin, once): \`git push --force origin origin/$UPSTREAM:refs/heads/$BRANCH\`
+          3. Promote again with the Promote workflows.
+          EOF
+          )
+          EXISTING=$(gh issue list --state open --search "\"$TITLE\" in:title" --json number --jq '.[0].number')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh issue create --title "$TITLE" --body "$BODY"
+          fi

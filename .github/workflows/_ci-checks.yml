@@ -1,0 +1,138 @@
+# Reusable checks: the SINGLE source of truth for what "passing" means.
+# Called by ci-development.yml, ci-staging.yml and ci-main.yml.
+# scripts/promote.sh runs the same `quality` steps before it promotes.
+#
+#   quality ──▶ e2e
+#   [typecheck ∥ lint] → vitest      production build → Playwright (Chromium)
+#
+# No real secrets: tests never call Stripe or Google, so the placeholder keys
+# below only have to pass src/env.ts validation. Each job gets its own
+# throwaway Postgres 16, so CLAUDE.md's "one `pnpm test` at a time" rule holds.
+
+name: CI checks
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Which branch pipeline called us (shown in the run title only)
+        type: string
+        required: false
+        default: development
+
+permissions:
+  contents: read
+
+env:
+  APP_URL: http://localhost:3000
+  ADMIN_TOKEN: ci-admin-token-not-a-secret
+  GOOGLE_CLIENT_ID: ci-google-client-id
+  GOOGLE_CLIENT_SECRET: ci-google-client-secret
+  STRIPE_SECRET_KEY: sk_test_ci_placeholder
+  STRIPE_WEBHOOK_SECRET: whsec_ci_placeholder
+  CRON_SECRET: ci-cron-secret-placeholder-32-chars-min
+
+jobs:
+  quality:
+    name: Verify (types · lint · tests) [${{ inputs.environment }}]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: clinic
+          POSTGRES_PASSWORD: clinic
+          POSTGRES_DB: clinicdesk_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U clinic -d clinicdesk_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://clinic:clinic@localhost:5432/clinicdesk_test
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: pnpm/action-setup@v4 # version from "packageManager" in package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # pinned: never silently pick up the runner's default Node
+          cache: pnpm # cache key = hash of pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+
+      # vitest.config.ts requires .env.test (git-ignored); build it from the env above.
+      - run: bash scripts/ci-write-env.sh .env.test
+
+      # Typecheck and lint don't depend on each other: run them in parallel,
+      # wait for both, fail if either failed.
+      - name: Typecheck + lint (parallel)
+        run: |
+          pids=()
+          pnpm typecheck & pids+=($!)
+          pnpm lint --max-warnings 0 & pids+=($!)
+          fail=0
+          for pid in "${pids[@]}"; do wait "$pid" || fail=1; done
+          exit $fail
+
+      - run: pnpm test # tests/global-setup.ts applies the migrations first
+
+  e2e:
+    name: Build + Playwright [${{ inputs.environment }}]
+    needs: quality # don't spend minutes on a browser run if the basics fail
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: clinic
+          POSTGRES_PASSWORD: clinic
+          POSTGRES_DB: clinicdesk
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U clinic -d clinicdesk"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://clinic:clinic@localhost:5432/clinicdesk
+      CI: true
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # drizzle.config.ts and the seed script read .env.local (git-ignored).
+      - run: bash scripts/ci-write-env.sh .env.local
+      - run: pnpm db:migrate # a throwaway CI database, never a real one
+      - run: pnpm db:seed # creates the zero-deposit "Consultation" service the suite books
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # playwright.config.ts runs `pnpm build && pnpm start` on CI, so this job
+      # also proves the production build works.
+      - run: pnpm test:e2e
+
+      # Evidence on failure: HTML report, screenshots, videos, traces.
+      # Download from the run page, open with `pnpm exec playwright show-report`.
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report-${{ inputs.environment }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
