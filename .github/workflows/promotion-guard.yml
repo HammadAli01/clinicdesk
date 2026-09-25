@@ -1,0 +1,38 @@
+# Keeps the pipeline one-way: a PR into staging must come from development,
+# and a PR into main must come from staging. Everything else goes to development.
+# (Normally you don't open these PRs at all: the Promote workflows fast-forward
+# instead. This catches someone opening one by mistake.)
+
+name: Promotion guard
+
+on:
+  pull_request:
+    # `edited` re-runs the check when someone changes the PR's base branch.
+    types: [opened, reopened, synchronize, edited]
+    branches: [staging, main]
+
+permissions: {}
+
+jobs:
+  direction:
+    name: One-way pipeline direction
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+          HEAD: ${{ github.event.pull_request.head.ref }}
+          FORK: ${{ github.event.pull_request.head.repo.fork }}
+        run: |
+          if [ "$FORK" = "true" ]; then
+            echo "::error::PRs from forks can't target $BASE. Open it against 'development'."; exit 1
+          fi
+          case "$BASE" in
+            staging) ALLOWED=development ;;
+            main)    ALLOWED=staging ;;
+            *)       exit 0 ;;
+          esac
+          if [ "$HEAD" != "$ALLOWED" ]; then
+            echo "::error::'$BASE' only accepts changes from '$ALLOWED'. Merge your branch into 'development' instead, then promote."
+            exit 1
+          fi
+          echo "OK: $HEAD → $BASE"

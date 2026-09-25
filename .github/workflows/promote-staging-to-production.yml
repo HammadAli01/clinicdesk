@@ -1,0 +1,104 @@
+# Manual promotion: staging → main (Actions tab → "Promote · staging → production" → Run workflow).
+# Runs scripts/promote.sh, which re-checks the tip of `staging` and then
+# FAST-FORWARDS `main` to the same commits. Vercel deploys `main` from that push.
+
+name: "Promote · staging → production"
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Verify only: run all checks but do NOT push"
+        type: boolean
+        default: false
+
+# Never cancel a promotion half-way through its push.
+concurrency:
+  group: promote-staging-to-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    name: Anything to promote?
+    runs-on: ubuntu-latest
+    outputs:
+      promote: ${{ steps.diff.outputs.promote }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: diff
+        run: |
+          SRC="$(git ls-remote origin refs/heads/staging | cut -f1)"
+          TGT="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [ "$SRC" = "$TGT" ]; then
+            echo "Nothing to promote: main is already at staging (${SRC:0:7})."
+            echo "promote=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "promote=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  promote:
+    name: Check + fast-forward staging → main
+    needs: check
+    if: needs.check.outputs.promote == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # promote.sh runs the Vitest suite, which needs a throwaway test database.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: clinic
+          POSTGRES_PASSWORD: clinic
+          POSTGRES_DB: clinicdesk_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U clinic -d clinicdesk_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    # Placeholders only (same as _ci-checks.yml): tests never call Stripe/Google.
+    env:
+      DATABASE_URL: postgres://clinic:clinic@localhost:5432/clinicdesk_test
+      APP_URL: http://localhost:3000
+      ADMIN_TOKEN: ci-admin-token-not-a-secret
+      GOOGLE_CLIENT_ID: ci-google-client-id
+      GOOGLE_CLIENT_SECRET: ci-google-client-secret
+      STRIPE_SECRET_KEY: sk_test_ci_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_ci_placeholder
+      CRON_SECRET: ci-cron-secret-placeholder-32-chars-min
+      HAS_PAT: ${{ secrets.PROMOTION_TOKEN != '' }} # secrets can't be used in `if:` directly
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # promote.sh needs full history for the fast-forward check
+          # A push made with the default GITHUB_TOKEN does NOT trigger other
+          # workflows, so ci-main.yml would never run on the promoted commit.
+          # PROMOTION_TOKEN (a fine-grained PAT) fixes that.
+          token: ${{ secrets.PROMOTION_TOKEN || github.token }}
+
+      - name: Warn if PROMOTION_TOKEN is missing
+        if: ${{ env.HAS_PAT != 'true' }}
+        run: echo "::warning::PROMOTION_TOKEN is not set. The push will work, but ci-main.yml will NOT run on it (Vercel still deploys)."
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: bash scripts/ci-write-env.sh .env.test
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Promote
+        run: |
+          ARGS=(staging-to-prod -y)
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS+=(--dry-run); fi
+          bash scripts/promote.sh "${ARGS[@]}"

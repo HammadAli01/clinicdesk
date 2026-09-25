@@ -1,0 +1,29 @@
+# Runs the shared checks (_ci-checks.yml) for the `staging` branch.
+# ci-development.yml, ci-staging.yml and ci-main.yml are identical except for the branch name.
+#
+# No path filters on purpose: these checks are REQUIRED by branch protection,
+# and a required check that is skipped by a path filter stays "pending" forever
+# and blocks the merge. (docs/ is git-ignored, so almost every change is code anyway.)
+
+name: CI - staging
+
+on:
+  pull_request:
+    branches: [staging]
+  push:
+    branches: [staging]
+  workflow_dispatch: # manual "run anyway" button
+
+# A newer push to the same PR/branch cancels the now-pointless older run.
+concurrency:
+  group: ci-staging-${{ github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/_ci-checks.yml
+    with:
+      environment: staging
