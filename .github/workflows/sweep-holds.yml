@@ -1,0 +1,60 @@
+# Every 5 minutes: free slots whose deposit was never paid, on each deployed
+# environment, by calling GET /api/cron/release-holds.
+#
+# Why not Vercel Cron? On Vercel's free (Hobby) plan crons can run at most once
+# a day. GitHub's schedule is free, runs on the default branch (main) only, and
+# can start a few minutes late under load, which is fine: a hold just lives a
+# little longer. The route is idempotent, so a late or doubled call is harmless.
+#
+# Setup (Settings → Secrets and variables → Actions):
+#   Variables: DEV_APP_URL, STAGING_APP_URL, PROD_APP_URL   (e.g. https://clinicdesk-dev.vercel.app)
+#   Secrets:   CRON_SECRET_DEV, CRON_SECRET_STAGING, CRON_SECRET_PROD  (same value as that Vercel project's CRON_SECRET)
+# An environment with no URL variable is skipped, so you can add them one at a time.
+
+name: Sweep unpaid holds
+
+on:
+  schedule:
+    - cron: '*/5 * * * *' # UTC; interval-only, so the time zone doesn't matter
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: sweep-holds
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: Sweep ${{ matrix.env }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    strategy:
+      fail-fast: false # one environment being down shouldn't skip the others
+      matrix:
+        include:
+          - env: development
+            url_var: DEV_APP_URL
+            secret_name: CRON_SECRET_DEV
+          - env: staging
+            url_var: STAGING_APP_URL
+            secret_name: CRON_SECRET_STAGING
+          - env: production
+            url_var: PROD_APP_URL
+            secret_name: CRON_SECRET_PROD
+    steps:
+      - env:
+          APP_URL: ${{ vars[matrix.url_var] }}
+          CRON_SECRET: ${{ secrets[matrix.secret_name] }}
+        run: |
+          if [ -z "$APP_URL" ]; then
+            echo "No ${{ matrix.url_var }} variable: ${{ matrix.env }} not deployed yet, skipping."; exit 0
+          fi
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::${{ matrix.secret_name }} secret is missing for ${{ matrix.env }}."; exit 1
+          fi
+          # -f: fail on HTTP errors, -sS: quiet but show errors, retry transient failures.
+          curl -fsS --retry 3 --retry-delay 5 --max-time 30 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$APP_URL/api/cron/release-holds"
+          echo
