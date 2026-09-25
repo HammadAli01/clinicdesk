@@ -11,7 +11,11 @@ export default defineConfig({
   // Fail the build if a `.only` was accidentally left in the suite.
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  reporter: [["html", { open: "never" }]],
+  // On CI, "github" turns each failure into an annotation on the PR/commit page;
+  // the HTML report is still written and uploaded as a CI artifact.
+  reporter: process.env.CI
+    ? [["github"], ["html", { open: "never" }]]
+    : [["html", { open: "never" }]],
 
   use: {
     baseURL: "http://localhost:3000",
@@ -28,11 +32,13 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: "pnpm dev",
+    // CI tests the production build (what users actually get: minified,
+    // no dev overlay, real server rendering). Locally, the dev server is faster.
+    command: process.env.CI ? "pnpm build && pnpm start" : "pnpm dev",
     url: "http://localhost:3000",
     // Reuse whatever's already running locally; CI always starts fresh so a
     // stale/broken server from a previous run can't silently pass the suite.
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: process.env.CI ? 300_000 : 120_000, // CI includes `next build`
   },
 });

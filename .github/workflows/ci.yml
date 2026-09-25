@@ -1,0 +1,147 @@
+# CI: runs on every push and every pull request.
+#
+#   checks ──▶ e2e
+#   (typecheck, lint, Vitest)   (production build + Playwright in Chromium)
+#
+# No real secrets are needed. The unit tests and the E2E suite never call
+# Stripe or Google (E2E books the zero-deposit "Consultation" service), so the
+# keys below are placeholders that only have to pass src/env.ts validation.
+# Each job gets its own throwaway Postgres 16, so the "only one `pnpm test` at
+# a time" rule from CLAUDE.md is satisfied automatically.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# A newer push to the same branch cancels the older, now-pointless run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Placeholder values: shape-valid for src/env.ts, useless to anyone who reads them.
+  APP_URL: http://localhost:3000
+  ADMIN_TOKEN: ci-admin-token-not-a-secret
+  GOOGLE_CLIENT_ID: ci-google-client-id
+  GOOGLE_CLIENT_SECRET: ci-google-client-secret
+  STRIPE_SECRET_KEY: sk_test_ci_placeholder
+  STRIPE_WEBHOOK_SECRET: whsec_ci_placeholder
+
+jobs:
+  checks:
+    name: Typecheck, lint, unit + integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: clinic
+          POSTGRES_PASSWORD: clinic
+          POSTGRES_DB: clinicdesk_test
+        ports: ['5432:5432']
+        # Don't start the steps until Postgres accepts connections.
+        options: >-
+          --health-cmd "pg_isready -U clinic -d clinicdesk_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://clinic:clinic@localhost:5432/clinicdesk_test
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # version comes from "packageManager" in package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # vitest.config.ts refuses to start without .env.test (it's git-ignored),
+      # so write one from the job's env. The shell DATABASE_URL wins anyway.
+      - name: Write .env.test
+        run: |
+          {
+            echo "DATABASE_URL=$DATABASE_URL"
+            echo "APP_URL=$APP_URL"
+            echo "ADMIN_TOKEN=$ADMIN_TOKEN"
+            echo "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID"
+            echo "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET"
+            echo "STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY"
+            echo "STRIPE_WEBHOOK_SECRET=$STRIPE_WEBHOOK_SECRET"
+          } > .env.test
+
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test # tests/global-setup.ts applies the migrations first
+
+  e2e:
+    name: Playwright end-to-end
+    needs: checks # don't spend 5 minutes on a browser run if the basics fail
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: clinic
+          POSTGRES_PASSWORD: clinic
+          POSTGRES_DB: clinicdesk
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U clinic -d clinicdesk"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://clinic:clinic@localhost:5432/clinicdesk
+      CI: true
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # drizzle.config.ts and the seed script read .env.local (git-ignored).
+      - name: Write .env.local
+        run: |
+          {
+            echo "DATABASE_URL=$DATABASE_URL"
+            echo "APP_URL=$APP_URL"
+            echo "ADMIN_TOKEN=$ADMIN_TOKEN"
+            echo "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID"
+            echo "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET"
+            echo "STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY"
+            echo "STRIPE_WEBHOOK_SECRET=$STRIPE_WEBHOOK_SECRET"
+          } > .env.local
+
+      - run: pnpm db:migrate # a throwaway CI database, never a real one
+      - run: pnpm db:seed # creates the "Consultation" service the suite books
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # playwright.config.ts starts the server itself (build + start on CI).
+      - run: pnpm test:e2e
+
+      # On failure, keep the evidence: HTML report, screenshots, videos, traces.
+      # Download it from the run page and open with `pnpm exec playwright show-report`.
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
