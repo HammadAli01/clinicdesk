@@ -1,4 +1,4 @@
-# CI: runs on every push and every pull request.
+# CI: runs on pushes to main and on every pull request.
 #
 #   checks ──▶ e2e
 #   (typecheck, lint, Vitest)   (production build + Playwright in Chromium)
@@ -11,9 +11,13 @@
 
 name: CI
 
+# Pushes to main, plus every pull request. (Plain `push:` on all branches would
+# run twice for a branch with an open PR: once for the push, once for the PR.)
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch: # a "Run workflow" button on the Actions tab
 
 # A newer push to the same branch cancels the older, now-pointless run.
 concurrency:
