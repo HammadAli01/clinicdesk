@@ -4,6 +4,12 @@
 // the tRPC client reaching the provider, superjson keeping Dates as Dates,
 // the clinic timezone reaching the DOM, and a 409 becoming a visible error.
 import { defineConfig, devices } from "@playwright/test";
+import { config } from "dotenv";
+
+// Next.js reads .env.local by itself, but the TEST RUNNER process doesn't. Load it
+// so tests can read e.g. ADMIN_TOKEN. dotenv never overrides variables that are
+// already set, so on CI the workflow's env wins (its .env.local holds the same placeholders).
+config({ path: ".env.local", quiet: true });
 
 export default defineConfig({
   testDir: "./e2e",

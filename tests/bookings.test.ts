@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { db } from "@/server/db";
 import { appointments, services } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
-import { bookAppointment, cancelAppointment, confirmPayment } from "@/server/services/bookings";
+import {
+  bookAppointment,
+  cancelAppointment,
+  confirmPayment,
+  getBookingStatus,
+} from "@/server/services/bookings";
 import { localDayBounds } from "@/server/services/slots";
 
 async function seedService(durationMinutes = 60, depositCents = 0) {
@@ -112,5 +117,28 @@ describe("confirmPayment", () => {
 
     const [row] = await db.select().from(appointments).where(eq(appointments.id, appointment.id));
     expect(row?.status).toBe("confirmed");
+  });
+});
+
+describe("getBookingStatus", () => {
+  it("reports pending_payment, then confirmed after the payment lands, with no customer details", async () => {
+    const svc = await seedService(60, 2000);
+    const startsAt = futureLocal(15);
+    const { appointment } = await bookAppointment(db, { serviceId: svc.id, startsAt, ...alice });
+
+    const before = await getBookingStatus(db, appointment.id);
+    expect(before).toEqual({ status: "pending_payment", startsAt, serviceName: "Test" });
+
+    await confirmPayment(db, appointment.id);
+    const after = await getBookingStatus(db, appointment.id);
+    expect(after.status).toBe("confirmed");
+    // Public endpoint: exactly these three fields, never the name or phone.
+    expect(Object.keys(after).sort()).toEqual(["serviceName", "startsAt", "status"]);
+  });
+
+  it("throws NOT_FOUND for an unknown id", async () => {
+    await expect(
+      getBookingStatus(db, "00000000-0000-4000-8000-000000000000"),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });

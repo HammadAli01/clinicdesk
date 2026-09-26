@@ -16,6 +16,19 @@ const timeFmt = new Intl.DateTimeFormat("en-PK", {
   minute: "2-digit",
 });
 
+// Date + time, for the confirmation message ("Mon 5 Oct, 10:00 am").
+const dateTimeFmt = new Intl.DateTimeFormat("en-PK", {
+  timeZone: "Asia/Karachi",
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+/** What the patient just booked, kept after the form is cleared so we can show it. */
+type Confirmation = { serviceName: string; startsAt: Date; customerName: string };
+
 // Arrow function + template literal. Money stays in integer cents everywhere;
 // it is only divided by 100 here, at the very last moment, for display.
 const moneyFmt = (cents: number) => `Rs ${(cents / 100).toFixed(2)}`;
@@ -49,6 +62,7 @@ export function BookingForm() {
   const [slot, setSlot] = useState<Date | null>(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
 
   // tRPC v11 style: useQuery(trpc.x.queryOptions()). The result type comes all the
   // way from the server's listServices return type, with no hand-written API types.
@@ -63,12 +77,20 @@ export function BookingForm() {
 
   const book = useMutation(
     trpc.bookings.book.mutationOptions({
-      onSuccess: async (result) => {
+      onSuccess: async (result, variables) => {
         // Mark cached slot lists stale so they refetch: the slot just booked disappears.
         await queryClient.invalidateQueries(trpc.bookings.availableSlots.queryFilter());
         if (result.checkoutUrl) {
           window.location.assign(result.checkoutUrl); // off to pay the deposit
         } else {
+          // Remember what was booked BEFORE clearing the form, so we can show it.
+          // `variables` = exactly what was submitted to book.mutate(...).
+          setConfirmation({
+            serviceName:
+              services.data?.find((s) => s.id === variables.serviceId)?.name ?? "appointment",
+            startsAt: result.startsAt,
+            customerName: variables.customerName,
+          });
           setSlot(null);
           setName("");
           setPhone("");
@@ -212,9 +234,11 @@ export function BookingForm() {
           {book.error.message}
         </p>
       )}
-      {book.data && !book.data.checkoutUrl && (
+      {book.data && !book.data.checkoutUrl && confirmation && (
         <p className="text-sm text-green-700" data-testid="success-message">
-          Booked! See you then.
+          Booked! Your {confirmation.serviceName} is confirmed for{" "}
+          {dateTimeFmt.format(confirmation.startsAt)}, under the name{" "}
+          {confirmation.customerName}. See you then.
         </p>
       )}
 

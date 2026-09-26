@@ -226,3 +226,38 @@ test.describe("landing page", () => {
     );
   });
 });
+
+test.describe("staff admin", () => {
+  // The whole staff journey: a patient books, staff sign in, staff cancel it.
+  // ADMIN_TOKEN comes from the environment (CI: the workflow's env; locally:
+  // .env.local, loaded in playwright.config.ts).
+  test("staff sign in and cancel a booking; it disappears from the list", async ({ page }) => {
+    const adminToken = process.env.ADMIN_TOKEN;
+    test.skip(!adminToken, "ADMIN_TOKEN is not set for the test runner");
+    const patient = `E2E Staff ${Date.now()}`; // unique, so we find OUR row in a shared dev DB
+
+    // 1. A patient books (day +5: no other test uses that day).
+    await page.goto("/book");
+    await selectConsultation(page);
+    await page.getByTestId("date-input").fill(karachiDateString(5));
+    await page.getByTestId("slot-button").first().click();
+    await page.getByTestId("name-input").fill(patient);
+    await page.getByTestId("phone-input").fill(VALID_PHONE);
+    await page.getByTestId("submit-button").click();
+    await expect(page.getByTestId("success-message")).toContainText(patient);
+
+    // 2. Signed out, /admin offers a sign-in link instead of hanging on "Loading…".
+    await page.goto("/admin");
+    await page.getByTestId("admin-login-link").click();
+    await page.getByTestId("admin-token-input").fill(adminToken ?? "");
+    await page.getByTestId("admin-login-button").click();
+    await expect(page).toHaveURL(/\/admin$/);
+
+    // 3. Cancel our row. window.confirm() is a native dialog: accept it when it opens.
+    const row = page.getByRole("listitem").filter({ hasText: patient });
+    await expect(row).toBeVisible();
+    page.once("dialog", (dialog) => dialog.accept());
+    await row.getByTestId("cancel-button").click();
+    await expect(row).toHaveCount(0);
+  });
+});

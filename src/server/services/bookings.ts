@@ -108,6 +108,27 @@ export function listUpcoming(db: Db) {
   });
 }
 
+/**
+ * Public status of one booking, for the "payment received" message after Stripe
+ * redirects back to /book?paid=<id>. Deliberately returns NO customer name or
+ * phone: anyone holding the link (an unguessable UUID) sees only what they booked.
+ * Throws NOT_FOUND for an unknown id.
+ */
+export async function getBookingStatus(db: Db, appointmentId: string) {
+  const [row] = await db
+    .select({
+      status: appointments.status,
+      startsAt: appointments.startsAt,
+      serviceName: services.name,
+    })
+    .from(appointments)
+    .innerJoin(services, eq(appointments.serviceId, services.id))
+    .where(eq(appointments.id, appointmentId));
+
+  if (!row) throw new DomainError("NOT_FOUND", "No booking with that id");
+  return row;
+}
+
 // ---- Writes ----
 
 /**

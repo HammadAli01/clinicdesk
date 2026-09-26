@@ -117,6 +117,42 @@ describe("bookings router", () => {
     expect(rows.some((r) => r.customerName === "Alice")).toBe(true);
   });
 
+  it("cancel is staff-only: UNAUTHORIZED for the public, and cancels for an admin", async () => {
+    const svc = await seedService("Staff Cancel", 60, 0);
+    const booked = await callerAs(false).bookings.book({
+      serviceId: svc.id,
+      startsAt: futureLocal(11),
+      ...alice,
+    });
+    const input = { appointmentId: booked.appointmentId, customerPhone: alice.customerPhone };
+
+    await expect(callerAs(false).bookings.cancel(input)).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    const [stillBooked] = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.id, booked.appointmentId));
+    expect(stillBooked?.status).toBe("confirmed");
+
+    await callerAs(true).bookings.cancel(input);
+    const [cancelled] = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.id, booked.appointmentId));
+    expect(cancelled?.status).toBe("cancelled");
+  });
+
+  it("status is public and returns only status, service and time", async () => {
+    const svc = await seedService("Status Check", 60, 0);
+    const startsAt = futureLocal(12);
+    const booked = await callerAs(false).bookings.book({ serviceId: svc.id, startsAt, ...alice });
+
+    const result = await callerAs(false).bookings.status({ appointmentId: booked.appointmentId });
+
+    expect(result).toEqual({ status: "confirmed", startsAt, serviceName: "Status Check" });
+  });
+
   it("rejects a 3-character phone number before the service runs, creating no appointment", async () => {
     const svc = await seedService("Bad Phone", 60, 0);
 
