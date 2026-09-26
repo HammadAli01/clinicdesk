@@ -25,7 +25,9 @@ permissions:
 
 env:
   APP_URL: http://localhost:3000
-  ADMIN_TOKEN: ci-admin-token-not-a-secret
+  # The first staff account: `pnpm db:seed` creates it, the Playwright staff test signs in with it.
+  SEED_ADMIN_EMAIL: ci-admin@clinicdesk.test
+  SEED_ADMIN_PASSWORD: ci-placeholder-password
   GOOGLE_CLIENT_ID: ci-google-client-id
   GOOGLE_CLIENT_SECRET: ci-google-client-secret
   STRIPE_SECRET_KEY: sk_test_ci_placeholder

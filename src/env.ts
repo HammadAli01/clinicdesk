@@ -5,7 +5,6 @@ import { z } from 'zod';
 const EnvSchema = z.object({
   DATABASE_URL: z.url(),
   APP_URL: z.url(),
-  ADMIN_TOKEN: z.string().min(16, 'ADMIN_TOKEN must be at least 16 characters'),
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
   STRIPE_SECRET_KEY: z.string().startsWith('sk_'),

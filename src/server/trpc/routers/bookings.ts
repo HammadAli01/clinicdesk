@@ -16,6 +16,7 @@ import {
   CancelInput,
   cancelAppointment,
   findAvailableSlots,
+  getBookingStatus,
   listServices,
   listUpcoming,
 } from "@/server/services/bookings";
@@ -44,9 +45,15 @@ export const bookingsRouter = createTRPCRouter({
     .input(BookInput.omit({ source: true }))
     .mutation(({ ctx, input }) => bookWithDeposit(ctx, { ...input, source: "web" })),
 
-  // Public on purpose: the phone number in the input IS the authorization
-  // check (see cancelAppointment), not a session or a cookie.
-  cancel: publicProcedure
+  // Public, read-only: the "payment received" message polls this after Stripe.
+  // Returns status + service + time only (no customer details); see getBookingStatus.
+  status: publicProcedure
+    .input(z.object({ appointmentId: z.uuid() }))
+    .query(({ ctx, input }) => getBookingStatus(ctx.db, input.appointmentId)),
+
+  // Staff only: cancelling happens from /admin. (Callers can still cancel via
+  // the AI receptionist, whose MCP tool requires the id AND the booking phone.)
+  cancel: adminProcedure
     .input(CancelInput)
     .mutation(({ ctx, input }) => cancelAppointment(ctx.db, input)),
 

@@ -106,6 +106,37 @@ export const webhookEvents = pgTable('webhook_events', {
   processedAt: tstz('processed_at'),
 });
 
+// ---- Staff accounts (migration 0004) ----
+// One row per staff member. The password is NEVER stored: only a salted scrypt
+// hash (see src/server/passwords.ts). Emails are stored lower-cased by the
+// service, so the unique index also stops "Ali@x.com" + "ali@x.com" duplicates.
+export const staffUsers = pgTable(
+  'staff_users',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    email: text('email').notNull(),
+    passwordHash: text('password_hash').notNull(),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('staff_users_email_uq').on(t.email)],
+);
+
+// One row per signed-in browser. The cookie holds a random token; this table
+// stores only its SHA-256 hash as the id, so a leaked database can't be used
+// to impersonate anyone. Deleting a staff user deletes their sessions (cascade).
+export const staffSessions = pgTable(
+  'staff_sessions',
+  {
+    id: text('id').primaryKey(), // sha256(token), hex
+    staffUserId: uuid('staff_user_id')
+      .notNull()
+      .references(() => staffUsers.id, { onDelete: 'cascade' }),
+    expiresAt: tstz('expires_at').notNull(),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('staff_sessions_staff_user_id_idx').on(t.staffUserId)],
+);
+
 // Relations don't change the database. They teach Drizzle's query API how to join.
 export const servicesRelations = relations(services, ({ many }) => ({
   appointments: many(appointments),
@@ -125,3 +156,5 @@ export type OauthAccount = typeof oauthAccounts.$inferSelect;
 export type NewOauthAccount = typeof oauthAccounts.$inferInsert;
 export type WebhookEvent = typeof webhookEvents.$inferSelect;
 export type NewWebhookEvent = typeof webhookEvents.$inferInsert;
+export type StaffUser = typeof staffUsers.$inferSelect;
+export type StaffSession = typeof staffSessions.$inferSelect;

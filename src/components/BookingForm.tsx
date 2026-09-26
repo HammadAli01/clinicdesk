@@ -7,6 +7,20 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { CircleAlert, CircleCheck } from "lucide-react"; // icons (shadcn's default icon set)
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useTRPC } from "@/trpc/client"; // client-side only; this file never imports server code
 
 // Created once at module load and reused on every render (building a formatter is not free).
@@ -15,6 +29,19 @@ const timeFmt = new Intl.DateTimeFormat("en-PK", {
   hour: "numeric",
   minute: "2-digit",
 });
+
+// Date + time, for the confirmation message ("Mon 5 Oct, 10:00 am").
+const dateTimeFmt = new Intl.DateTimeFormat("en-PK", {
+  timeZone: "Asia/Karachi",
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+/** What the patient just booked, kept after the form is cleared so we can show it. */
+type Confirmation = { serviceName: string; startsAt: Date; customerName: string };
 
 // Arrow function + template literal. Money stays in integer cents everywhere;
 // it is only divided by 100 here, at the very last moment, for display.
@@ -49,6 +76,7 @@ export function BookingForm() {
   const [slot, setSlot] = useState<Date | null>(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
 
   // tRPC v11 style: useQuery(trpc.x.queryOptions()). The result type comes all the
   // way from the server's listServices return type, with no hand-written API types.
@@ -63,12 +91,20 @@ export function BookingForm() {
 
   const book = useMutation(
     trpc.bookings.book.mutationOptions({
-      onSuccess: async (result) => {
+      onSuccess: async (result, variables) => {
         // Mark cached slot lists stale so they refetch: the slot just booked disappears.
         await queryClient.invalidateQueries(trpc.bookings.availableSlots.queryFilter());
         if (result.checkoutUrl) {
           window.location.assign(result.checkoutUrl); // off to pay the deposit
         } else {
+          // Remember what was booked BEFORE clearing the form, so we can show it.
+          // `variables` = exactly what was submitted to book.mutate(...).
+          setConfirmation({
+            serviceName:
+              services.data?.find((s) => s.id === variables.serviceId)?.name ?? "appointment",
+            startsAt: result.startsAt,
+            customerName: variables.customerName,
+          });
           setSlot(null);
           setName("");
           setPhone("");
@@ -81,151 +117,173 @@ export function BookingForm() {
   // This is only a UX hint; the server re-validates everything with Zod.
   const canSubmit = serviceId !== "" && slot !== null && name.trim() !== "" && phone.trim() !== "";
 
+  const field = "grid gap-2"; // label above input, same spacing everywhere
+
   return (
-    <form
-      className="mx-auto grid max-w-md gap-4 p-6"
-      onSubmit={(e) => {
-        e.preventDefault(); // stop the browser's full-page form submit
-        // `!slot` is repeated on purpose: TypeScript can't see through `canSubmit`,
-        // so this check narrows `slot` from `Date | null` to `Date`.
-        if (!canSubmit || !slot) return;
-        book.mutate({ serviceId, startsAt: slot, customerName: name, customerPhone: phone });
-      }}
-    >
-      <div className="grid gap-1">
-        <label htmlFor="service-select" className="text-sm font-medium text-zinc-700">
-          Service
-        </label>
-        {/* Conditional rendering: `cond && <jsx/>` renders the JSX only when cond is truthy. */}
-        {services.error && (
-          <p role="alert" className="text-sm text-red-700" data-testid="services-error-message">
-            {services.error.message}
-          </p>
-        )}
-        <select
-          id="service-select"
-          data-testid="service-select"
-          value={serviceId}
-          disabled={services.isLoading}
-          onChange={(e) => {
-            setServiceId(e.target.value);
-            setSlot(null);
+    <Card className="mx-auto w-full max-w-lg">
+      <CardHeader>
+        <CardTitle>Your appointment</CardTitle>
+        <CardDescription>All times are clinic time (Asia/Karachi).</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form
+          className="grid gap-5"
+          onSubmit={(e) => {
+            e.preventDefault(); // stop the browser's full-page form submit
+            // `!slot` is repeated on purpose: TypeScript can't see through `canSubmit`,
+            // so this check narrows `slot` from `Date | null` to `Date`.
+            if (!canSubmit || !slot) return;
+            book.mutate({ serviceId, startsAt: slot, customerName: name, customerPhone: phone });
           }}
-          className="rounded border border-zinc-300 p-2"
         >
-          <option value="">
-            {services.isLoading ? "Loading services…" : "Choose a service"}
-          </option>
-          {/* `data?.map`: data is undefined while loading. `key` lets React track each item. */}
-          {services.data?.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name} — {s.durationMinutes} min — {moneyFmt(s.priceCents)}
-            </option>
-          ))}
-        </select>
-        {services.data?.length === 0 && (
-          <p className="text-sm text-zinc-600">No services are available right now.</p>
-        )}
-      </div>
-
-      <div className="grid gap-1">
-        <label htmlFor="date-input" className="text-sm font-medium text-zinc-700">
-          Date
-        </label>
-        <input
-          id="date-input"
-          data-testid="date-input"
-          type="date"
-          value={date}
-          onChange={(e) => {
-            setDate(e.target.value);
-            setSlot(null);
-          }}
-          className="rounded border border-zinc-300 p-2"
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <span className="text-sm font-medium text-zinc-700">Available times</span>
-        <div className="flex flex-wrap gap-2">
-          {serviceId === "" && (
-            <p className="text-sm text-zinc-600">Choose a service to see available times.</p>
-          )}
-          {slots.isLoading && <p className="text-sm text-zinc-600">Loading slots…</p>}
-          {slots.error && (
-            <p role="alert" className="text-sm text-red-700" data-testid="slots-error-message">
-              {slots.error.message}
-            </p>
-          )}
-          {slots.data?.length === 0 && (
-            <p className="text-sm text-zinc-600">No free slots that day. Try another date.</p>
-          )}
-          {slots.data?.map((s) => (
-            <button
-              type="button"
-              key={s.toISOString()}
-              data-testid="slot-button"
-              aria-pressed={slot?.getTime() === s.getTime()}
-              onClick={() => setSlot(s)}
-              className={`rounded border px-3 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 ${
-                slot?.getTime() === s.getTime()
-                  ? "border-teal-700 bg-teal-700 text-white"
-                  : "border-zinc-300 text-zinc-800 hover:border-teal-700"
-              }`}
+          <div className={field}>
+            <Label htmlFor="service-select">Service</Label>
+            {/* Conditional rendering: `cond && <jsx/>` renders the JSX only when cond is truthy. */}
+            {services.error && (
+              <p role="alert" className="text-sm text-destructive" data-testid="services-error-message">
+                {services.error.message}
+              </p>
+            )}
+            {/* shadcn Select = Radix Select + Tailwind. Not a native <select>: it renders a
+                button (role="combobox") and a popup list of role="option" items. */}
+            <Select
+              value={serviceId}
+              disabled={services.isLoading}
+              onValueChange={(value) => {
+                setServiceId(value);
+                setSlot(null);
+              }}
             >
-              {timeFmt.format(s)}
-            </button>
-          ))}
-        </div>
-      </div>
+              <SelectTrigger id="service-select" data-testid="service-select" className="w-full">
+                <SelectValue
+                  placeholder={services.isLoading ? "Loading services…" : "Choose a service"}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {/* `data?.map`: data is undefined while loading. `key` lets React track each item. */}
+                {services.data?.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name} — {s.durationMinutes} min — {moneyFmt(s.priceCents)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {services.data?.length === 0 && (
+              <p className="text-sm text-muted-foreground">No services are available right now.</p>
+            )}
+          </div>
 
-      <div className="grid gap-1">
-        <label htmlFor="name-input" className="text-sm font-medium text-zinc-700">
-          Your name
-        </label>
-        <input
-          id="name-input"
-          data-testid="name-input"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="rounded border border-zinc-300 p-2"
-        />
-      </div>
+          <div className={field}>
+            <Label htmlFor="date-input">Date</Label>
+            <Input
+              id="date-input"
+              data-testid="date-input"
+              type="date"
+              value={date}
+              onChange={(e) => {
+                setDate(e.target.value);
+                setSlot(null);
+              }}
+            />
+          </div>
 
-      <div className="grid gap-1">
-        <label htmlFor="phone-input" className="text-sm font-medium text-zinc-700">
-          Phone number
-        </label>
-        <input
-          id="phone-input"
-          data-testid="phone-input"
-          type="tel"
-          placeholder="03001234567"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          className="rounded border border-zinc-300 p-2"
-        />
-      </div>
+          <div className={field}>
+            <span className="text-sm font-medium">Available times</span>
+            {serviceId === "" && (
+              <p className="text-sm text-muted-foreground">Choose a service to see available times.</p>
+            )}
+            {slots.isLoading && (
+              // Skeleton: grey placeholder blocks shaped like the buttons that are coming.
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4" aria-label="Loading slots…">
+                {Array.from({ length: 8 }, (_, i) => (
+                  <Skeleton key={i} className="h-8" />
+                ))}
+              </div>
+            )}
+            {slots.error && (
+              <p role="alert" className="text-sm text-destructive" data-testid="slots-error-message">
+                {slots.error.message}
+              </p>
+            )}
+            {slots.data?.length === 0 && (
+              <p className="text-sm text-muted-foreground">No free slots that day. Try another date.</p>
+            )}
+            {slots.data && slots.data.length > 0 && (
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                {slots.data.map((s) => {
+                  const selected = slot?.getTime() === s.getTime();
+                  return (
+                    <Button
+                      type="button"
+                      key={s.toISOString()}
+                      data-testid="slot-button"
+                      aria-pressed={selected}
+                      // cva variants: the same component, two looks.
+                      variant={selected ? "default" : "outline"}
+                      onClick={() => setSlot(s)}
+                    >
+                      {timeFmt.format(s)}
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
-      {book.error && (
-        <p role="alert" className="text-sm text-red-700" data-testid="error-message">
-          {book.error.message}
-        </p>
-      )}
-      {book.data && !book.data.checkoutUrl && (
-        <p className="text-sm text-green-700" data-testid="success-message">
-          Booked! See you then.
-        </p>
-      )}
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div className={field}>
+              <Label htmlFor="name-input">Your name</Label>
+              <Input
+                id="name-input"
+                data-testid="name-input"
+                autoComplete="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            <div className={field}>
+              <Label htmlFor="phone-input">Phone number</Label>
+              <Input
+                id="phone-input"
+                data-testid="phone-input"
+                type="tel"
+                autoComplete="tel"
+                placeholder="03001234567"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+            </div>
+          </div>
 
-      <button
-        type="submit"
-        data-testid="submit-button"
-        disabled={!canSubmit || book.isPending}
-        className="rounded bg-teal-700 p-2 text-white disabled:opacity-50"
-      >
-        {book.isPending ? "Booking…" : "Book appointment"}
-      </button>
-    </form>
+          {book.error && (
+            <Alert variant="destructive" data-testid="error-message">
+              <CircleAlert />
+              <AlertTitle>Couldn&apos;t book that</AlertTitle>
+              <AlertDescription>{book.error.message}</AlertDescription>
+            </Alert>
+          )}
+          {book.data && !book.data.checkoutUrl && confirmation && (
+            <Alert data-testid="success-message" className="border-primary/40">
+              <CircleCheck className="text-primary" />
+              <AlertTitle>Booked!</AlertTitle>
+              <AlertDescription>
+                Your {confirmation.serviceName} is confirmed for{" "}
+                {dateTimeFmt.format(confirmation.startsAt)}, under the name{" "}
+                {confirmation.customerName}. See you then.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <Button
+            type="submit"
+            size="lg"
+            data-testid="submit-button"
+            disabled={!canSubmit || book.isPending}
+          >
+            {book.isPending ? "Booking…" : "Book appointment"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

@@ -4,8 +4,8 @@
 //
 // Thin adapter, like the tRPC routers: check the caller → call ONE service → map to HTTP.
 // Built as a factory (deps passed in) so tests can supply their own secret and db.
-import { createHash, timingSafeEqual } from "node:crypto";
 import type { Db } from "@/server/db";
+import { safeEqual } from "@/server/safe-equal";
 import { releaseExpiredHolds } from "@/server/services/holds";
 
 type Deps = {
@@ -13,16 +13,6 @@ type Deps = {
   /** From env.CRON_SECRET. `undefined` = this environment doesn't expose the route. */
   secret: string | undefined;
 };
-
-/**
- * Constant-time string comparison. Hashing both sides first gives equal-length
- * buffers (timingSafeEqual throws on different lengths) and hides the secret's length.
- */
-function safeEqual(a: string, b: string): boolean {
-  const ha = createHash("sha256").update(a).digest();
-  const hb = createHash("sha256").update(b).digest();
-  return timingSafeEqual(ha, hb);
-}
 
 /**
  * Returns a route handler for `GET /api/cron/release-holds`.

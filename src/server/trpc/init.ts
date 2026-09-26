@@ -10,9 +10,10 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { z, ZodError } from "zod";
-import { env } from "@/env";
 import { db } from "@/server/db";
 import { DomainError } from "@/server/errors";
+import { getStaffBySession } from "@/server/services/staff";
+import { readCookie, STAFF_COOKIE } from "@/server/staff-cookie";
 import { stripe } from "@/server/stripe";
 
 /**
@@ -30,13 +31,12 @@ import { stripe } from "@/server/stripe";
  * one argument that must have a `headers` field of the web-standard `Headers` type.
  */
 export async function createTRPCContext(opts: { headers: Headers }) {
-  // `??` (nullish coalescing) = "use the right side if the left is null or
-  // undefined". No cookie header -> "" -> split gives [""] -> not admin.
-  const cookies = (opts.headers.get("cookie") ?? "").split(/;\s*/);
-  // Demo-grade admin auth: a single shared cookie compared to an env var.
-  // In a real app use a proper auth library (Auth.js, Better Auth, Clerk)
-  // and a users table with roles, not a bearer-token-in-a-cookie hack.
-  const isAdmin = cookies.includes(`admin_token=${env.ADMIN_TOKEN}`);
+  // Staff are signed in when their `staff_session` cookie holds a live session
+  // token (set by /api/admin/login; see services/staff.ts). No cookie, an unknown
+  // token or an expired session all mean "not staff".
+  const token = readCookie(opts.headers.get("cookie"), STAFF_COOKIE);
+  const staff = token ? await getStaffBySession(db, token) : null;
+  const isAdmin = staff !== null;
   // `{ db, stripe, isAdmin }` is shorthand for `{ db: db, stripe: stripe, isAdmin: isAdmin }`.
   return { db, stripe, isAdmin };
 }

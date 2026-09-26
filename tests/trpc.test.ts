@@ -11,14 +11,20 @@ import { appointments, services } from "@/server/db/schema";
 import { DomainError } from "@/server/errors";
 import { localDayBounds } from "@/server/services/slots";
 import { stripe } from "@/server/stripe";
-import { createCallerFactory, createTRPCRouter, publicProcedure } from "@/server/trpc/init";
+import { createStaffUser, signIn, signOut } from "@/server/services/staff";
+import {
+  createCallerFactory,
+  createTRPCContext,
+  createTRPCRouter,
+  publicProcedure,
+} from "@/server/trpc/init";
 import { appRouter } from "@/server/trpc/routers/_app";
 
 const callerFactory = createCallerFactory(appRouter);
 
 // isAdmin is set directly here instead of going through createTRPCContext's
-// cookie parsing -- that cookie -> env.ADMIN_TOKEN wiring belongs to the
-// route handler, not to these router/service tests.
+// cookie + session lookup; that wiring has its own test at the bottom of this
+// file ("createTRPCContext").
 function callerAs(isAdmin: boolean) {
   return callerFactory({ db, stripe, isAdmin });
 }
@@ -117,6 +123,42 @@ describe("bookings router", () => {
     expect(rows.some((r) => r.customerName === "Alice")).toBe(true);
   });
 
+  it("cancel is staff-only: UNAUTHORIZED for the public, and cancels for an admin", async () => {
+    const svc = await seedService("Staff Cancel", 60, 0);
+    const booked = await callerAs(false).bookings.book({
+      serviceId: svc.id,
+      startsAt: futureLocal(11),
+      ...alice,
+    });
+    const input = { appointmentId: booked.appointmentId, customerPhone: alice.customerPhone };
+
+    await expect(callerAs(false).bookings.cancel(input)).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    const [stillBooked] = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.id, booked.appointmentId));
+    expect(stillBooked?.status).toBe("confirmed");
+
+    await callerAs(true).bookings.cancel(input);
+    const [cancelled] = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.id, booked.appointmentId));
+    expect(cancelled?.status).toBe("cancelled");
+  });
+
+  it("status is public and returns only status, service and time", async () => {
+    const svc = await seedService("Status Check", 60, 0);
+    const startsAt = futureLocal(12);
+    const booked = await callerAs(false).bookings.book({ serviceId: svc.id, startsAt, ...alice });
+
+    const result = await callerAs(false).bookings.status({ appointmentId: booked.appointmentId });
+
+    expect(result).toEqual({ status: "confirmed", startsAt, serviceName: "Status Check" });
+  });
+
   it("rejects a 3-character phone number before the service runs, creating no appointment", async () => {
     const svc = await seedService("Bad Phone", 60, 0);
 
@@ -181,5 +223,23 @@ describe("error sanitisation", () => {
     if (!(error instanceof TRPCError)) throw new Error("expected a TRPCError");
     expect(error.code).toBe("CONFLICT");
     expect(error.message).toBe("That time was just taken.");
+  });
+});
+
+describe("createTRPCContext", () => {
+  const withCookie = (cookie?: string) =>
+    createTRPCContext({ headers: new Headers(cookie ? { cookie } : {}) });
+
+  it("is admin only with a live staff_session cookie", async () => {
+    await createStaffUser(db, { email: "staff@clinic.test", password: "long enough password" });
+    const session = await signIn(db, { email: "staff@clinic.test", password: "long enough password" });
+    const token = session?.token ?? "";
+
+    expect((await withCookie(`theme=dark; staff_session=${token}`)).isAdmin).toBe(true);
+    expect((await withCookie()).isAdmin).toBe(false);
+    expect((await withCookie("staff_session=forged-token")).isAdmin).toBe(false);
+
+    await signOut(db, token);
+    expect((await withCookie(`staff_session=${token}`)).isAdmin).toBe(false);
   });
 });

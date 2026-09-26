@@ -19,16 +19,21 @@
 import { createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { env } from "@/env";
+import { db } from "@/server/db";
 import { GOOGLE_SCOPE, REDIRECT_URI } from "@/server/integrations/google";
+import { getStaffBySession } from "@/server/services/staff";
+import { STAFF_COOKIE } from "@/server/staff-cookie";
 
 // In the Next.js App Router, exporting a function named after an HTTP method (GET, POST...)
 // from a `route.ts` file makes it the handler for that method at this URL path.
 export async function GET() {
   // Next.js 16: cookies() is async -- must be awaited before use.
   const jar = await cookies();
-  // Only a logged-in admin may start the flow. `?.` (optional chaining) means: if there is no
-  // such cookie, `.value` is skipped and we get `undefined`, which will not equal the token.
-  if (jar.get("admin_token")?.value !== env.ADMIN_TOKEN) {
+  // Only signed-in staff may start the flow. `?.` (optional chaining) means: if there is no
+  // such cookie, `.value` is skipped and we get `undefined`.
+  const token = jar.get(STAFF_COOKIE)?.value;
+  const staff = token ? await getStaffBySession(db, token) : null;
+  if (!staff) {
     return new Response("Unauthorized", { status: 401 });
   }
 
