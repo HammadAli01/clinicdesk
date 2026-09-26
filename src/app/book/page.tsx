@@ -12,15 +12,15 @@ export default async function BookPage(props: PageProps<"/book">) {
   const paidId = PaidParam.safeParse(paid);
 
   return (
-    <main className="flex-1 py-10">
-      <h1 className="text-center text-2xl font-semibold text-zinc-900">
-        Book an appointment
-      </h1>
+    <main className="flex flex-1 flex-col gap-6 bg-muted/40 px-4 py-10">
+      <div className="text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">Book an appointment</h1>
+        <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+          Pick a service, a date and a free time slot. We will only ask for your name and
+          phone number to confirm.
+        </p>
+      </div>
       {paidId.success && <PaymentStatus appointmentId={paidId.data} />}
-      <p className="mx-auto mt-2 max-w-md text-center text-sm text-zinc-600">
-        Pick a service, a date and a free time slot. We will only ask for your name and
-        phone number to confirm.
-      </p>
       <BookingForm />
     </main>
   );
