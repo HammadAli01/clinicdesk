@@ -229,11 +229,13 @@ test.describe("landing page", () => {
 
 test.describe("staff admin", () => {
   // The whole staff journey: a patient books, staff sign in, staff cancel it.
-  // ADMIN_TOKEN comes from the environment (CI: the workflow's env; locally:
-  // .env.local, loaded in playwright.config.ts).
+  // The staff account is the one `pnpm db:seed` creates from SEED_ADMIN_EMAIL /
+  // SEED_ADMIN_PASSWORD (CI: the workflow's env; locally: .env.local, loaded in
+  // playwright.config.ts).
   test("staff sign in and cancel a booking; it disappears from the list", async ({ page }) => {
-    const adminToken = process.env.ADMIN_TOKEN;
-    test.skip(!adminToken, "ADMIN_TOKEN is not set for the test runner");
+    const email = process.env.SEED_ADMIN_EMAIL;
+    const password = process.env.SEED_ADMIN_PASSWORD;
+    test.skip(!email || !password, "SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD not set (and seeded)");
     const patient = `E2E Staff ${Date.now()}`; // unique, so we find OUR row in a shared dev DB
 
     // 1. A patient books (day +5: no other test uses that day).
@@ -249,7 +251,8 @@ test.describe("staff admin", () => {
     // 2. Signed out, /admin offers a sign-in link instead of hanging on "Loading…".
     await page.goto("/admin");
     await page.getByTestId("admin-login-link").click();
-    await page.getByTestId("admin-token-input").fill(adminToken ?? "");
+    await page.getByTestId("admin-email-input").fill(email ?? "");
+    await page.getByTestId("admin-password-input").fill(password ?? "");
     await page.getByTestId("admin-login-button").click();
     await expect(page).toHaveURL(/\/admin$/);
 

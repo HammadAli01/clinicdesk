@@ -11,6 +11,7 @@ Zod 4 · Vitest · Stripe · Google Calendar OAuth · MCP TypeScript SDK · pnpm
 - `pnpm db:up` starts Postgres in Docker. Tests need it running.
 - `pnpm db:generate --name=<what_changed>` after any change to `src/server/db/schema.ts`.
 - `pnpm db:migrate` applies migrations. Ask before running it.
+- `pnpm db:seed` adds the demo services and, if `SEED_ADMIN_EMAIL` + `SEED_ADMIN_PASSWORD` are set, the first staff login. Idempotent.
 - `pnpm dev` runs the app at http://localhost:3000.
 - `npx @modelcontextprotocol/inspector npx tsx --env-file=.env.local mcp/server.ts` opens the MCP Inspector.
 

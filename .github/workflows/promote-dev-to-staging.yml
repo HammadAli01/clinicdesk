@@ -63,7 +63,6 @@ jobs:
     env:
       DATABASE_URL: postgres://clinic:clinic@localhost:5432/clinicdesk_test
       APP_URL: http://localhost:3000
-      ADMIN_TOKEN: ci-admin-token-not-a-secret
       GOOGLE_CLIENT_ID: ci-google-client-id
       GOOGLE_CLIENT_SECRET: ci-google-client-secret
       STRIPE_SECRET_KEY: sk_test_ci_placeholder

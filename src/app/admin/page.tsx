@@ -1,8 +1,8 @@
 "use client";
 
 // Staff-only view of upcoming appointments, with a Cancel button per row.
-// Auth is the demo-grade `admin_token` cookie, set by /admin/login and compared
-// in src/server/trpc/init.ts. This component only decides what to show for each
+// Auth: signing in at /admin/login sets an httpOnly `staff_session` cookie; the
+// server looks the session up in src/server/trpc/init.ts. This component only decides what to show for each
 // state; the SERVER decides who is an admin (adminProcedure).
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

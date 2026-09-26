@@ -7,7 +7,7 @@ import { defineConfig, devices } from "@playwright/test";
 import { config } from "dotenv";
 
 // Next.js reads .env.local by itself, but the TEST RUNNER process doesn't. Load it
-// so tests can read e.g. ADMIN_TOKEN. dotenv never overrides variables that are
+// so tests can read e.g. SEED_ADMIN_EMAIL. dotenv never overrides variables that are
 // already set, so on CI the workflow's env wins (its .env.local holds the same placeholders).
 config({ path: ".env.local", quiet: true });
 

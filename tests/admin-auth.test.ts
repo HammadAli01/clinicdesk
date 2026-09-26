@@ -1,41 +1,59 @@
-// Staff sign-in / sign-out handlers (src/server/admin-auth.ts). Built with an
-// explicit token, so the test doesn't depend on .env.test's ADMIN_TOKEN.
+// Staff sign-in / sign-out handlers (src/server/admin-auth.ts) against the real
+// test database: a real staff account, real sessions, real cookies.
 import { describe, expect, it } from "vitest";
 import { createAdminAuthHandlers } from "@/server/admin-auth";
+import { db } from "@/server/db";
+import { staffSessions } from "@/server/db/schema";
+import { createStaffUser, getStaffBySession } from "@/server/services/staff";
 
-const TOKEN = "test-admin-token-at-least-16";
 const BASE = "http://localhost:3000";
+const STAFF = { email: "staff@clinic.test", password: "a long enough password" };
+const { login, logout } = createAdminAuthHandlers({ db, secureCookies: false });
 
-function formPost(path: string, fields: Record<string, string>) {
-  return new Request(`${BASE}${path}`, { method: "POST", body: new URLSearchParams(fields) });
+function formPost(path: string, fields: Record<string, string>, cookie?: string) {
+  const headers = new Headers(cookie ? { cookie } : {});
+  return new Request(`${BASE}${path}`, {
+    method: "POST",
+    headers,
+    body: new URLSearchParams(fields),
+  });
 }
 
-describe("POST /api/admin/login", () => {
-  const { login } = createAdminAuthHandlers({ adminToken: TOKEN, secureCookies: false });
+/** The value of staff_session in a Set-Cookie header, or undefined. */
+const sessionFrom = (setCookie: string | null) =>
+  /^staff_session=([^;]*)/.exec(setCookie ?? "")?.[1];
 
-  it("with the right token: sets an httpOnly admin_token cookie and redirects to /admin", async () => {
-    const res = await login(formPost("/api/admin/login", { token: TOKEN }));
+describe("POST /api/admin/login", () => {
+  it("with the right email + password: sets an httpOnly session cookie and redirects to /admin", async () => {
+    await createStaffUser(db, STAFF);
+
+    const res = await login(formPost("/api/admin/login", STAFF));
 
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toBe(`${BASE}/admin`);
     const cookie = res.headers.get("set-cookie") ?? "";
-    expect(cookie).toContain(`admin_token=${TOKEN}`);
     expect(cookie).toMatch(/HttpOnly/i);
     expect(cookie).toMatch(/SameSite=lax/i);
-    expect(cookie).toMatch(/Path=\//);
     expect(cookie).toMatch(/Max-Age=43200/);
     expect(cookie).not.toMatch(/Secure/i);
+    expect(cookie).not.toContain(STAFF.password);
+    // The cookie's token is a live session for this staff member.
+    const staff = await getStaffBySession(db, sessionFrom(cookie) ?? "");
+    expect(staff?.email).toBe(STAFF.email);
   });
 
-  it("with a wrong token: no cookie, back to the login page with an error", async () => {
-    const res = await login(formPost("/api/admin/login", { token: "not-the-token-at-all" }));
+  it("with a wrong password: no cookie, no session, back to login with an error", async () => {
+    await createStaffUser(db, STAFF);
+
+    const res = await login(formPost("/api/admin/login", { ...STAFF, password: "wrong password!!" }));
 
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toBe(`${BASE}/admin/login?error=1`);
     expect(res.headers.get("set-cookie")).toBeNull();
+    expect(await db.select().from(staffSessions)).toHaveLength(0);
   });
 
-  it("with no form body: no cookie, back to the login page with an error", async () => {
+  it("with no form body: back to login with an error", async () => {
     const res = await login(new Request(`${BASE}/api/admin/login`, { method: "POST" }));
 
     expect(res.status).toBe(303);
@@ -44,24 +62,27 @@ describe("POST /api/admin/login", () => {
   });
 
   it("marks the cookie Secure when secureCookies is on (production)", async () => {
-    const prod = createAdminAuthHandlers({ adminToken: TOKEN, secureCookies: true });
+    await createStaffUser(db, STAFF);
+    const prod = createAdminAuthHandlers({ db, secureCookies: true });
 
-    const res = await prod.login(formPost("/api/admin/login", { token: TOKEN }));
+    const res = await prod.login(formPost("/api/admin/login", STAFF));
 
     expect(res.headers.get("set-cookie") ?? "").toMatch(/Secure/i);
   });
 });
 
 describe("POST /api/admin/logout", () => {
-  it("expires the admin_token cookie and redirects to the login page", async () => {
-    const { logout } = createAdminAuthHandlers({ adminToken: TOKEN, secureCookies: false });
+  it("ends the session on the server and expires the cookie", async () => {
+    await createStaffUser(db, STAFF);
+    const signedIn = await login(formPost("/api/admin/login", STAFF));
+    const token = sessionFrom(signedIn.headers.get("set-cookie")) ?? "";
 
-    const res = await logout(new Request(`${BASE}/api/admin/logout`, { method: "POST" }));
+    const res = await logout(formPost("/api/admin/logout", {}, `staff_session=${token}`));
 
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toBe(`${BASE}/admin/login`);
-    const cookie = res.headers.get("set-cookie") ?? "";
-    expect(cookie).toMatch(/^admin_token=;/);
-    expect(cookie).toMatch(/Max-Age=0/);
+    expect(res.headers.get("set-cookie") ?? "").toMatch(/^staff_session=;.*Max-Age=0/);
+    expect(await getStaffBySession(db, token)).toBeNull();
+    expect(await db.select().from(staffSessions)).toHaveLength(0);
   });
 });
