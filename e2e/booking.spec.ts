@@ -68,25 +68,21 @@ function karachiDateString(daysFromNow: number): string {
  * Selects the "Consultation" service -- the one zero-deposit service, so
  * booking it confirms immediately instead of redirecting to Stripe Checkout.
  *
- * The obvious selector, `selectOption({ label: 'Consultation' })`, does not
- * match the
- * real markup: Team UI's option text is "Consultation — 30 min — Rs 30.00"
- * (name + duration + price), and Playwright's `label` match is exact, not a
- * substring. So instead this locates the <option> by substring text, reads
- * its real `value` (the service's database id), and selects by that value.
+ * The service picker is a shadcn/ui Select (Radix), NOT a native <select>:
+ * the trigger is a button with role="combobox", and clicking it opens a popup
+ * list of role="option" items. So we click, then pick the option by its
+ * accessible name. The option text is "Consultation — 30 min — Rs 30.00",
+ * hence the regex instead of an exact string.
  */
 async function selectConsultation(page: Page): Promise<void> {
-  const select = page.getByTestId("service-select");
-  const consultationOption = select.locator("option", { hasText: "Consultation" });
-  // Also doubles as the wait for the services query to finish loading. A
-  // generous timeout: the first request against a cold `next dev` compile
-  // can take longer than Playwright's 5s assertion default.
-  await expect(consultationOption).toHaveCount(1, { timeout: 15_000 });
-  const value = await consultationOption.getAttribute("value");
-  if (value === null || value === "") {
-    throw new Error("Consultation <option> has no value attribute to select by.");
-  }
-  await select.selectOption(value);
+  const trigger = page.getByTestId("service-select");
+  // Doubles as the wait for the services query: the trigger is disabled while
+  // it loads. A generous timeout: the first request against a cold `next dev`
+  // compile can take longer than Playwright's 5s assertion default.
+  await expect(trigger).toBeEnabled({ timeout: 15_000 });
+  await trigger.click();
+  await page.getByRole("option", { name: /^Consultation/ }).click();
+  await expect(trigger).toContainText("Consultation");
 }
 
 const VALID_PHONE = "03001234567"; // matches BookInput's phone regex, no uniqueness required
@@ -256,11 +252,14 @@ test.describe("staff admin", () => {
     await page.getByTestId("admin-login-button").click();
     await expect(page).toHaveURL(/\/admin$/);
 
-    // 3. Cancel our row. window.confirm() is a native dialog: accept it when it opens.
-    const row = page.getByRole("listitem").filter({ hasText: patient });
+    // 3. Cancel our row. The confirmation is a shadcn AlertDialog (a real DOM
+    //    element with role="alertdialog"), so we click its button like any other.
+    const row = page.getByRole("row").filter({ hasText: patient });
     await expect(row).toBeVisible();
-    page.once("dialog", (dialog) => dialog.accept());
     await row.getByTestId("cancel-button").click();
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog).toContainText(patient);
+    await dialog.getByTestId("confirm-cancel-button").click();
     await expect(row).toHaveCount(0);
   });
 });
