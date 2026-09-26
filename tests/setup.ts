@@ -27,6 +27,6 @@ import { db } from '@/server/db';
 // This has cost real debugging time; see AI_LOG.md.
 beforeEach(async () => {
   await db.execute(
-    sql`TRUNCATE appointments, services, webhook_events, oauth_accounts CASCADE`,
+    sql`TRUNCATE appointments, services, webhook_events, oauth_accounts, staff_sessions, staff_users CASCADE`,
   );
 });

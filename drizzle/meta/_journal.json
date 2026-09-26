@@ -29,6 +29,13 @@
       "when": 1790101203816,
       "tag": "0003_unique_service_name",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790430682177,
+      "tag": "0004_staff_accounts",
+      "breakpoints": true
     }
   ]
 }
