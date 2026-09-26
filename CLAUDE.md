@@ -3,7 +3,7 @@
 Booking backend for a clinic's AI receptionist. Three callers share one service layer:
 the web UI (tRPC), an AI agent (MCP server), and Stripe (webhooks).
 
-Stack: Next.js 15 App Router · TypeScript strict · Drizzle + Postgres · tRPC v11 ·
+Stack: Next.js 16 App Router · TypeScript strict · Drizzle + Postgres · tRPC v11 ·
 Zod 4 · Vitest · Stripe · Google Calendar OAuth · MCP TypeScript SDK · pnpm.
 
 ## Commands
@@ -13,6 +13,19 @@ Zod 4 · Vitest · Stripe · Google Calendar OAuth · MCP TypeScript SDK · pnpm
 - `pnpm db:migrate` applies migrations. Ask before running it.
 - `pnpm dev` runs the app at http://localhost:3000.
 - `npx @modelcontextprotocol/inspector npx tsx --env-file=.env.local mcp/server.ts` opens the MCP Inspector.
+
+## Branches, CI and deploys
+- Flow: `feature/*` → squash-merged PR into `development` → "Promote" workflows → `staging` → `main`.
+  Open PRs against `development` only. Never push or open PRs to `staging`/`main`; promotion fast-forwards them.
+- CI = `.github/workflows/_ci-checks.yml`: [typecheck ∥ lint] → Vitest → production build + Playwright.
+  Keep `scripts/promote.sh` in sync with its `quality` job.
+- Vercel deploys each branch. `scripts/vercel-build.sh` runs `db:migrate` before `next build`, so every
+  migration must be backward compatible with the code still serving traffic (expand/contract).
+- Serverless has no long-running process: scheduled work is an HTTP route (`/api/cron/*`, Bearer `CRON_SECRET`)
+  called by `.github/workflows/sweep-holds.yml`. `pnpm jobs` (node-cron) is for local use.
+- New env var? Add it to `src/env.ts`, the placeholder `env:` blocks in `_ci-checks.yml` and `promote-*.yml`,
+  `scripts/ci-write-env.sh`, and each Vercel project.
+- The project needs Node 22. Vitest won't start on Node 20.10.
 
 ## Where things live
 - `src/server/services/*`: ALL business rules. Plain async functions, deps passed as the first arg (`db`, `stripe`).
